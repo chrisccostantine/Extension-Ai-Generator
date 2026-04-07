@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Shopify AI Product Page Generator",
+  "version": "1.0.0",
+  "description": "Generate product descriptions for Shopify products",
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "host_permissions": [
+    "https://*.myshopify.com/*",
+    "http://localhost:5000/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://admin.shopify.com/*", "https://*.myshopify.com/admin/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
