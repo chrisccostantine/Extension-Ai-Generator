@@ -204,6 +204,11 @@ export default function AppIndex() {
     () => (data.plans || []).filter((plan) => plan.isPaid),
     [data.plans],
   );
+  const currentPlanName = data.shopStatus?.plan?.name || "";
+  const defaultRequestedPlanName =
+    paidPlans.find((plan) => plan.name !== currentPlanName)?.name ||
+    paidPlans[0]?.name ||
+    "";
 
   const generated = actionData?.intent === "generate" ? actionData.generated : null;
 
@@ -227,6 +232,9 @@ export default function AppIndex() {
             <s-text>Current plan: </s-text>
             <strong>{data.shopStatus?.plan?.name || "Unavailable"}</strong>
           </s-paragraph>
+          {data.shopStatus?.plan?.description && (
+            <s-paragraph>{data.shopStatus.plan.description}</s-paragraph>
+          )}
           <s-paragraph>
             {data.shopStatus
               ? `Used ${data.shopStatus.usage?.count || 0} of ${data.shopStatus.plan?.monthly_generation_limit || 0} generations this month.`
@@ -370,23 +378,42 @@ export default function AppIndex() {
         <Form method="post" action="?index">
           <input type="hidden" name="intent" value="request-plan" />
           <s-stack direction="block" gap="base">
-            <label htmlFor="requestedPlanName">Choose plan</label>
-            <select
-              id="requestedPlanName"
-              name="requestedPlanName"
-              style={inputStyle}
-              defaultValue={paidPlans[0]?.name || ""}
-            >
-              {paidPlans.length ? (
-                paidPlans.map((plan) => (
-                  <option key={plan.id} value={plan.name}>
-                    {plan.name} - ${(plan.price_cents / 100).toFixed(2)} / month
-                  </option>
-                ))
-              ) : (
-                <option value="">No paid plans available</option>
-              )}
-            </select>
+            <label>Choose plan</label>
+            {paidPlans.length ? (
+              <div style={planGridStyle}>
+                {paidPlans.map((plan) => {
+                  const isCurrentPlan = plan.name === currentPlanName;
+                  return (
+                    <label key={plan.id} style={planCardStyle}>
+                      <input
+                        type="radio"
+                        name="requestedPlanName"
+                        value={plan.name}
+                        defaultChecked={plan.name === defaultRequestedPlanName}
+                      />
+                      <div style={planCardContentStyle}>
+                        <div style={planCardHeaderStyle}>
+                          <strong style={planNameStyle}>{capitalizePlanName(plan.name)}</strong>
+                          <strong>${(plan.price_cents / 100).toFixed(2)} / month</strong>
+                        </div>
+                        <p style={planDescriptionStyle}>
+                          {plan.description ||
+                            "Monthly access to AI product generation for your store."}
+                        </p>
+                        <p style={planMetaStyle}>
+                          {plan.monthly_generation_limit.toLocaleString()} generations per month
+                        </p>
+                        {isCurrentPlan && (
+                          <p style={planCurrentBadgeStyle}>Current plan</p>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={getNoticeStyle(false)}>No paid plans available right now.</div>
+            )}
 
             <label htmlFor="contactName">Your name</label>
             <input
@@ -527,6 +554,57 @@ const listStyle = {
   lineHeight: 1.5,
 };
 
+const planGridStyle = {
+  display: "grid",
+  gap: "12px",
+};
+
+const planCardStyle = {
+  display: "grid",
+  gridTemplateColumns: "auto 1fr",
+  gap: "12px",
+  alignItems: "start",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+  cursor: "pointer",
+};
+
+const planCardContentStyle = {
+  display: "grid",
+  gap: "6px",
+};
+
+const planCardHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const planNameStyle = {
+  textTransform: "capitalize",
+};
+
+const planDescriptionStyle = {
+  margin: 0,
+  color: "#4b5563",
+  lineHeight: 1.5,
+};
+
+const planMetaStyle = {
+  margin: 0,
+  color: "#111827",
+  fontWeight: 600,
+};
+
+const planCurrentBadgeStyle = {
+  margin: 0,
+  color: "#0f766e",
+  fontWeight: 600,
+};
+
 function getNoticeStyle(isSuccess) {
   return {
     marginTop: "12px",
@@ -545,6 +623,12 @@ const emptyProfile = {
   description_style: "",
   brand_guidelines: "",
 };
+
+function capitalizePlanName(value) {
+  return String(value || "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
 
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);

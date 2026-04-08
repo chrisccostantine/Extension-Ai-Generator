@@ -9,7 +9,7 @@ const { Pool } = require("pg");
 const app = express();
 const port = Number(process.env.PORT) || 5000;
 const monthlyGenerationLimit =
-  Number(process.env.MONTHLY_GENERATION_LIMIT) || 100;
+  Number(process.env.MONTHLY_GENERATION_LIMIT) || 5;
 const freePlanName = process.env.DEFAULT_PLAN_NAME || "free";
 const requiredAccessToken = process.env.ACCESS_TOKEN || "";
 const adminPanelToken = process.env.ADMIN_PANEL_TOKEN || "";
@@ -772,6 +772,7 @@ async function initializeDatabase() {
         CREATE TABLE IF NOT EXISTS plans (
           id SERIAL PRIMARY KEY,
           name TEXT NOT NULL UNIQUE,
+          description TEXT NOT NULL DEFAULT '',
           monthly_generation_limit INTEGER NOT NULL,
           price_cents INTEGER NOT NULL DEFAULT 0,
           is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -857,6 +858,13 @@ async function initializeDatabase() {
         )
       `,
     },
+    {
+      version: "006_plan_descriptions",
+      sql: `
+        ALTER TABLE plans
+        ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''
+      `,
+    },
   ];
 
   for (const migration of migrations) {
@@ -900,6 +908,7 @@ async function listPlans() {
       {
         id: 0,
         name: "free",
+        description: "For testing and very small stores that only need occasional generations.",
         monthly_generation_limit: monthlyGenerationLimit,
         price_cents: 0,
         is_active: true,
@@ -909,7 +918,7 @@ async function listPlans() {
 
   const result = await pool.query(
     `
-      SELECT id, name, monthly_generation_limit, price_cents, is_active
+      SELECT id, name, description, monthly_generation_limit, price_cents, is_active
       FROM plans
       WHERE is_active = TRUE
       ORDER BY price_cents ASC, id ASC
@@ -925,6 +934,7 @@ async function getPlanByName(name) {
       return {
         id: 0,
         name: freePlanName,
+        description: "For testing and very small stores that only need occasional generations.",
         monthly_generation_limit: monthlyGenerationLimit,
         price_cents: 0,
         is_active: true,
@@ -936,7 +946,7 @@ async function getPlanByName(name) {
 
   const result = await pool.query(
     `
-      SELECT id, name, monthly_generation_limit, price_cents, is_active
+      SELECT id, name, description, monthly_generation_limit, price_cents, is_active
       FROM plans
       WHERE name = $1
       LIMIT 1
@@ -953,12 +963,40 @@ async function seedPlans() {
   }
 
   await pool.query(`
-    INSERT INTO plans (name, monthly_generation_limit, price_cents)
+    INSERT INTO plans (name, description, monthly_generation_limit, price_cents)
     VALUES
-      ('free', 100, 0),
-      ('pro', 1000, 1900),
-      ('agency', 5000, 4900)
+      (
+        'free',
+        'For testing and very small stores that only need occasional generations.',
+        5,
+        0
+      ),
+      (
+        'starter',
+        'For new stores that need steady product copy for a focused catalog.',
+        300,
+        900
+      ),
+      (
+        'growth',
+        'For growing stores that publish regularly and want more room each month.',
+        1000,
+        2400
+      ),
+      (
+        'scale',
+        'For active catalogs and small teams managing frequent launches.',
+        3000,
+        4900
+      ),
+      (
+        'agency',
+        'For agencies and high-volume operators managing many products across clients.',
+        10000,
+        9900
+      )
     ON CONFLICT (name) DO UPDATE SET
+      description = EXCLUDED.description,
       monthly_generation_limit = EXCLUDED.monthly_generation_limit,
       price_cents = EXCLUDED.price_cents,
       is_active = TRUE,
@@ -1054,6 +1092,7 @@ async function getPlanForShop(shopId) {
     return {
       id: 0,
       name: freePlanName,
+      description: "For testing and very small stores that only need occasional generations.",
       monthly_generation_limit: monthlyGenerationLimit,
       price_cents: 0,
       is_active: true,
@@ -1066,6 +1105,7 @@ async function getPlanForShop(shopId) {
       SELECT
         plans.id,
         plans.name,
+        plans.description,
         plans.monthly_generation_limit,
         plans.price_cents,
         plans.is_active,
@@ -1085,6 +1125,7 @@ async function getPlanForShop(shopId) {
   return {
     id: 0,
     name: freePlanName,
+    description: "For testing and very small stores that only need occasional generations.",
     monthly_generation_limit: monthlyGenerationLimit,
     price_cents: 0,
     is_active: true,
@@ -1110,6 +1151,7 @@ async function getLatestPlanRequestForShop(shopId) {
         plan_requests.created_at,
         plan_requests.updated_at,
         requested_plans.name AS requested_plan_name,
+        requested_plans.description AS requested_plan_description,
         requested_plans.price_cents AS requested_plan_price_cents
       FROM plan_requests
       JOIN plans AS requested_plans
@@ -1331,7 +1373,9 @@ async function listPlanRequests(status) {
         shops.client_id,
         shops.display_name,
         current_plans.name AS current_plan_name,
+        current_plans.description AS current_plan_description,
         requested_plans.name AS requested_plan_name,
+        requested_plans.description AS requested_plan_description,
         requested_plans.price_cents AS requested_plan_price_cents
       FROM plan_requests
       JOIN shops ON shops.id = plan_requests.shop_id
