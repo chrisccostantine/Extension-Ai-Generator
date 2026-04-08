@@ -131,68 +131,113 @@ export const action = async ({ request }) => {
     }
 
     if (intent === "bulk-generate-audit") {
-      const selectedProductIds = formData
-        .getAll("productIds")
-        .map((value) => String(value || "").trim())
-        .filter(Boolean);
-      let mode = String(formData.get("mode") || "").trim().toLowerCase();
-      let language = String(formData.get("language") || "").trim();
-      let presetInstructions = String(formData.get("presetInstructions") || "").trim();
-      const presetId = String(formData.get("presetId") || "").trim();
+      const bulkGenerationInput = await buildBulkGenerationInput({
+        admin,
+        backend,
+        clientId,
+        formData,
+      });
 
-      if (!selectedProductIds.length) {
+      if (bulkGenerationInput.errorMessage) {
         return {
           ok: false,
           intent,
-          message: "Select at least one product from the audit list.",
+          message: bulkGenerationInput.errorMessage,
         };
       }
 
-      if (presetId) {
-        const presetsPayload = await backendRequest({
-          backend,
-          pathname: "/content-presets",
-          method: "GET",
-          clientId,
-        });
-        const selectedPreset = (presetsPayload.presets || []).find(
-          (preset) => String(preset.id) === presetId,
-        );
-
-        if (selectedPreset) {
-          mode = selectedPreset.mode;
-          language = selectedPreset.language;
-          presetInstructions = selectedPreset.instructions || "";
-        }
-      }
-
-      const products = await getProductsByIds(admin, selectedProductIds);
       let successCount = 0;
       const failedTitles = [];
 
-      for (const product of products) {
+      for (const preview of bulkGenerationInput.previews) {
         try {
-          const generated = await backendRequest({
-            backend,
-            pathname: "/generate-product-content",
-            method: "POST",
-            body: {
-              clientId,
-              title: product.title,
-              mode,
-              language,
-              existingDescription: stripHtml(product.descriptionHtml || ""),
-              presetInstructions,
-            },
-          });
-
           await updateShopifyProduct(admin, {
-            productId: product.id,
-            generated,
+            productId: preview.productId,
+            generated: preview.generated,
           });
           successCount += 1;
         } catch (_error) {
-          failedTitles.push(product.title);
+          failedTitles.push(preview.title);
+        }
+      }
+
+      return {
+        ok: successCount > 0,
+        intent,
+        message:
+          failedTitles.length === 0
+            ? `Updated ${successCount} product${successCount === 1 ? "" : "s"} successfully.`
+            : `Updated ${successCount} product${successCount === 1 ? "" : "s"}. Failed: ${failedTitles.join(", ")}.`,
+      };
+    }
+
+    if (intent === "preview-bulk-generate-audit") {
+      const bulkGenerationInput = await buildBulkGenerationInput({
+        admin,
+        backend,
+        clientId,
+        formData,
+      });
+
+      if (bulkGenerationInput.errorMessage) {
+        return {
+          ok: false,
+          intent,
+          message: bulkGenerationInput.errorMessage,
+        };
+      }
+
+      return {
+        ok: true,
+        intent,
+        message: `Generated ${bulkGenerationInput.previews.length} preview${
+          bulkGenerationInput.previews.length === 1 ? "" : "s"
+        }. Review them below before applying.`,
+        previews: bulkGenerationInput.previews,
+      };
+    }
+
+    if (intent === "apply-preview-batch") {
+      const previewsJson = String(formData.get("previewsJson") || "").trim();
+
+      if (!previewsJson) {
+        return {
+          ok: false,
+          intent,
+          message: "No previews were provided to apply.",
+        };
+      }
+
+      const previews = JSON.parse(previewsJson);
+      const selectedProductIds = formData
+        .getAll("selectedPreviewProductIds")
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+
+      const previewsToApply = selectedProductIds.length
+        ? previews.filter((preview) => selectedProductIds.includes(preview.productId))
+        : previews;
+
+      if (!previewsToApply.length) {
+        return {
+          ok: false,
+          intent,
+          message: "Select at least one preview to apply.",
+        };
+      }
+
+      let successCount = 0;
+      const failedTitles = [];
+
+      for (const preview of previewsToApply) {
+        try {
+          await updateShopifyProduct(admin, {
+            productId: preview.productId,
+            generated: preview.generated,
+          });
+          successCount += 1;
+        } catch (_error) {
+          failedTitles.push(preview.title);
         }
       }
 
@@ -328,6 +373,8 @@ export default function AppIndex() {
     paidPlans[0]?.name ||
     "";
   const auditItems = data.audit?.items || [];
+  const previewItems =
+    actionData?.intent === "preview-bulk-generate-audit" ? actionData.previews || [] : [];
 
   return (
     <s-page heading="AI Product Generator">
@@ -608,15 +655,96 @@ export default function AppIndex() {
               </div>
             )}
 
-            <s-button type="submit" variant="secondary" disabled={needsProfile || !auditItems.length}>
-              Generate and apply to selected products
-            </s-button>
+            <div style={bulkActionRowStyle}>
+              <s-button
+                type="submit"
+                name="_action"
+                value="preview"
+                variant="secondary"
+                formaction="?index"
+                onClick={(event) => {
+                  event.currentTarget.form.elements.intent.value =
+                    "preview-bulk-generate-audit";
+                }}
+                disabled={needsProfile || !auditItems.length}
+              >
+                Preview selected products
+              </s-button>
+              <s-button
+                type="submit"
+                name="_action"
+                value="apply"
+                variant="secondary"
+                formaction="?index"
+                onClick={(event) => {
+                  event.currentTarget.form.elements.intent.value =
+                    "bulk-generate-audit";
+                }}
+                disabled={needsProfile || !auditItems.length}
+              >
+                Generate and apply to selected products
+              </s-button>
+            </div>
           </s-stack>
         </Form>
 
-        {actionData?.message && actionData.intent === "bulk-generate-audit" && (
+        {actionData?.message &&
+          (actionData.intent === "bulk-generate-audit" ||
+            actionData.intent === "preview-bulk-generate-audit" ||
+            actionData.intent === "apply-preview-batch") && (
           <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
         )}
+
+        {previewItems.length ? (
+          <s-stack direction="block" gap="base">
+            <s-heading>Preview before apply</s-heading>
+            <Form method="post" action="?index">
+              <input type="hidden" name="intent" value="apply-preview-batch" />
+              <input
+                type="hidden"
+                name="previewsJson"
+                value={JSON.stringify(previewItems)}
+              />
+              <div style={previewListStyle}>
+                {previewItems.map((preview) => (
+                  <div key={preview.productId} style={previewCardStyle}>
+                    <div style={auditCardHeaderStyle}>
+                      <input
+                        id={`preview-${preview.productId}`}
+                        type="checkbox"
+                        name="selectedPreviewProductIds"
+                        value={preview.productId}
+                        defaultChecked
+                      />
+                      <label htmlFor={`preview-${preview.productId}`}>
+                        <strong>{preview.title}</strong>
+                      </label>
+                    </div>
+                    <div style={previewColumnsStyle}>
+                      <div style={previewPanelStyle}>
+                        <strong>Before</strong>
+                        <p style={previewTextStyle}>{preview.beforeDescription}</p>
+                      </div>
+                      <div style={previewPanelStyle}>
+                        <strong>After</strong>
+                        <p style={previewTextStyle}>{preview.generated.description}</p>
+                        <p style={previewMetaStyle}>
+                          SEO title: {preview.generated.metaTitle}
+                        </p>
+                        <p style={previewMetaStyle}>
+                          SEO description: {preview.generated.metaDescription}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <s-button type="submit" variant="secondary">
+                Apply selected previews
+              </s-button>
+            </Form>
+          </s-stack>
+        ) : null}
       </s-section>
 
       <s-section
@@ -959,6 +1087,53 @@ const auditFilterGridStyle = {
   marginBottom: "12px",
 };
 
+const bulkActionRowStyle = {
+  display: "flex",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const previewListStyle = {
+  display: "grid",
+  gap: "12px",
+};
+
+const previewCardStyle = {
+  display: "grid",
+  gap: "12px",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+};
+
+const previewColumnsStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: "12px",
+};
+
+const previewPanelStyle = {
+  display: "grid",
+  gap: "8px",
+  padding: "12px",
+  borderRadius: "10px",
+  border: "1px solid #e5e7eb",
+  background: "#f9fafb",
+};
+
+const previewTextStyle = {
+  margin: 0,
+  color: "#111827",
+  lineHeight: 1.6,
+};
+
+const previewMetaStyle = {
+  margin: 0,
+  color: "#4b5563",
+  lineHeight: 1.5,
+};
+
 const auditListStyle = {
   display: "grid",
   gap: "12px",
@@ -1151,6 +1326,73 @@ async function getProductsByIds(admin, ids) {
   );
   const payload = await response.json();
   return (payload?.data?.nodes || []).filter(Boolean);
+}
+
+async function buildBulkGenerationInput({ admin, backend, clientId, formData }) {
+  const selectedProductIds = formData
+    .getAll("productIds")
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  let mode = String(formData.get("mode") || "").trim().toLowerCase();
+  let language = String(formData.get("language") || "").trim();
+  let presetInstructions = String(formData.get("presetInstructions") || "").trim();
+  const presetId = String(formData.get("presetId") || "").trim();
+
+  if (!selectedProductIds.length) {
+    return {
+      errorMessage: "Select at least one product from the audit list.",
+      previews: [],
+    };
+  }
+
+  if (presetId) {
+    const presetsPayload = await backendRequest({
+      backend,
+      pathname: "/content-presets",
+      method: "GET",
+      clientId,
+    });
+    const selectedPreset = (presetsPayload.presets || []).find(
+      (preset) => String(preset.id) === presetId,
+    );
+
+    if (selectedPreset) {
+      mode = selectedPreset.mode;
+      language = selectedPreset.language;
+      presetInstructions = selectedPreset.instructions || "";
+    }
+  }
+
+  const products = await getProductsByIds(admin, selectedProductIds);
+  const previews = [];
+
+  for (const product of products) {
+    const generated = await backendRequest({
+      backend,
+      pathname: "/generate-product-content",
+      method: "POST",
+      body: {
+        clientId,
+        title: product.title,
+        mode,
+        language,
+        existingDescription: stripHtml(product.descriptionHtml || ""),
+        presetInstructions,
+      },
+    });
+
+    previews.push({
+      productId: product.id,
+      title: product.title,
+      beforeDescription: stripHtml(product.descriptionHtml || "") || "No description yet.",
+      generated,
+    });
+  }
+
+  return {
+    errorMessage: "",
+    previews,
+  };
 }
 
 async function updateShopifyProduct(admin, { productId, generated }) {
