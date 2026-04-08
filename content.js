@@ -259,15 +259,17 @@ function isDisabled(element) {
 
 async function requestGeneratedContent(title) {
   let response;
-  const backendUrl = await getBackendUrl();
+  const { backendUrl, accessToken } = await getBackendSettings();
+  const clientId = getClientId();
 
   try {
     response = await fetch(backendUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(accessToken ? { "x-extension-token": accessToken } : {}),
       },
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, clientId }),
     });
   } catch (_error) {
     throw new Error(`Could not reach the backend on ${backendUrl}.`);
@@ -285,22 +287,35 @@ async function requestGeneratedContent(title) {
     throw new Error(data.error || "Backend request failed.");
   }
 
-  if (!data.description || !Array.isArray(data.bullets)) {
+  if (
+    !data.description ||
+    !Array.isArray(data.highlights) ||
+    !Array.isArray(data.composition)
+  ) {
     throw new Error("Backend response is missing required content fields.");
   }
 
   return data;
 }
 
-async function getBackendUrl() {
+async function getBackendSettings() {
   if (!chrome?.storage?.sync) {
-    return DEFAULT_BACKEND_URL;
+    return {
+      backendUrl: DEFAULT_BACKEND_URL,
+      accessToken: "",
+    };
   }
 
   return new Promise((resolve) => {
-    chrome.storage.sync.get({ backendUrl: DEFAULT_BACKEND_URL }, (result) => {
-      resolve(result.backendUrl || DEFAULT_BACKEND_URL);
-    });
+    chrome.storage.sync.get(
+      { backendUrl: DEFAULT_BACKEND_URL, accessToken: "" },
+      (result) => {
+        resolve({
+          backendUrl: result.backendUrl || DEFAULT_BACKEND_URL,
+          accessToken: result.accessToken || "",
+        });
+      },
+    );
   });
 }
 
@@ -713,8 +728,10 @@ function activateContentSurface(surface) {
 function buildMarkup(data) {
   return [
     `<p>${escapeHtml(data.description)}</p>`,
-    "<p><strong>Key Features:</strong></p>",
-    `<ul>${data.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`,
+    "<p><strong>Highlights:</strong></p>",
+    `<ul>${data.highlights.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`,
+    "<p><strong>Composition:</strong></p>",
+    ...data.composition.map((item) => `<p>${escapeHtml(item)}</p>`),
   ].join("");
 }
 
@@ -722,9 +739,22 @@ function buildPlainText(data) {
   return [
     data.description,
     "",
-    "Key Features:",
-    ...data.bullets.map((item) => `- ${item}`),
+    "Highlights:",
+    ...data.highlights.map((item) => `- ${item}`),
+    "",
+    "Composition:",
+    ...data.composition.map((item) => `- ${item}`),
   ].join("\n");
+}
+
+function getClientId() {
+  const match = window.location.pathname.match(/\/store\/([^/]+)/i);
+
+  if (match?.[1]) {
+    return `shopify-store:${match[1]}`;
+  }
+
+  return `host:${window.location.host}`;
 }
 
 function escapeHtml(text) {

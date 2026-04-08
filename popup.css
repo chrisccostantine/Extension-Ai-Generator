@@ -68,6 +68,14 @@ h2 {
   color: #6d7175;
 }
 
+.helperText {
+  margin: -4px 0 12px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #6d7175;
+}
+
 #status {
   min-height: 36px;
   margin-top: 10px;

@@ -1,6 +1,7 @@
 const generateButton = document.getElementById("generateBtn");
 const inspectButton = document.getElementById("inspectBtn");
 const backendUrlInput = document.getElementById("backendUrl");
+const accessTokenInput = document.getElementById("accessToken");
 const statusElement = document.getElementById("status");
 const DEFAULT_BACKEND_URL = "http://localhost:5000/generate-product-content";
 
@@ -56,9 +57,13 @@ function setStatus(message) {
 }
 
 function initializeSettings() {
-  chrome.storage.sync.get({ backendUrl: DEFAULT_BACKEND_URL }, (result) => {
+  chrome.storage.sync.get(
+    { backendUrl: DEFAULT_BACKEND_URL, accessToken: "" },
+    (result) => {
     backendUrlInput.value = result.backendUrl || DEFAULT_BACKEND_URL;
-  });
+      accessTokenInput.value = result.accessToken || "";
+    },
+  );
 }
 
 function saveSettings() {
@@ -66,6 +71,7 @@ function saveSettings() {
     chrome.storage.sync.set(
       {
         backendUrl: backendUrlInput.value.trim() || DEFAULT_BACKEND_URL,
+        accessToken: accessTokenInput.value.trim(),
       },
       resolve,
     );
