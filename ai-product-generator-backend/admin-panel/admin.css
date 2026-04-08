@@ -162,6 +162,20 @@ button.reject {
   margin-bottom: 12px;
 }
 
+.requestActions {
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.requestActions textarea {
+  flex: 1 1 560px;
+  min-width: 280px;
+}
+
+.requestActions button {
+  flex: 0 0 auto;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
