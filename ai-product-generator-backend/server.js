@@ -7,7 +7,9 @@ const { Pool } = require("pg");
 
 const app = express();
 const port = Number(process.env.PORT) || 5000;
-const monthlyGenerationLimit = Number(process.env.MONTHLY_GENERATION_LIMIT) || 100;
+const monthlyGenerationLimit =
+  Number(process.env.MONTHLY_GENERATION_LIMIT) || 100;
+const freePlanName = process.env.DEFAULT_PLAN_NAME || "free";
 const requiredAccessToken = process.env.ACCESS_TOKEN || "";
 const defaultAllowedOrigins = [
   "http://localhost:3000",
@@ -58,7 +60,10 @@ app.use(
         return origin === allowedOrigin;
       });
 
-      callback(isAllowed ? null : new Error("Origin not allowed by CORS"), isAllowed);
+      callback(
+        isAllowed ? null : new Error("Origin not allowed by CORS"),
+        isAllowed,
+      );
     },
   }),
 );
@@ -72,6 +77,7 @@ app.get("/health", (_req, res) => {
     authEnabled: Boolean(requiredAccessToken),
     monthlyGenerationLimit,
     databaseEnabled: Boolean(pool),
+    defaultPlanName: freePlanName,
   });
 });
 
@@ -80,23 +86,59 @@ app.get("/usage", async (req, res) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const clientId = normalizeClientId(req.query.clientId);
-  const usage = await getUsageForClient(clientId);
+  try {
+    const clientId = normalizeClientId(req.query.clientId);
+    const shop = await ensureShop(clientId);
+    const plan = await getPlanForShop(shop.id);
+    const usage = await getUsageForClient(clientId);
 
-  return res.json({
-    clientId,
-    usage,
-    limit: monthlyGenerationLimit,
-    remaining: Math.max(monthlyGenerationLimit - usage.count, 0),
-    period: usage.period,
-  });
+    return res.json({
+      clientId,
+      shop,
+      plan,
+      usage,
+      limit: plan.monthly_generation_limit,
+      remaining: Math.max(plan.monthly_generation_limit - usage.count, 0),
+      period: usage.period,
+    });
+  } catch (error) {
+    console.error("Failed to fetch usage:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to fetch usage.",
+    });
+  }
+});
+
+app.get("/shop-status", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.query.clientId);
+    const shop = await ensureShop(clientId);
+    const plan = await getPlanForShop(shop.id);
+    const usage = await getUsageForClient(clientId);
+
+    return res.json({
+      clientId,
+      shop,
+      plan,
+      usage,
+      remaining: Math.max(plan.monthly_generation_limit - usage.count, 0),
+    });
+  } catch (error) {
+    console.error("Failed to fetch shop status:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to fetch shop status.",
+    });
+  }
 });
 
 app.post("/generate-product-content", async (req, res) => {
   const title =
     typeof req.body?.title === "string" ? req.body.title.trim() : "";
   const clientId = normalizeClientId(req.body?.clientId);
-  const usage = await getUsageForClient(clientId);
 
   if (!title) {
     return res.status(400).json({ error: "Title is required" });
@@ -114,18 +156,34 @@ app.post("/generate-product-content", async (req, res) => {
     });
   }
 
-  if (usage.count >= monthlyGenerationLimit) {
-    return res.status(429).json({
-      error: "Monthly generation limit reached for this client.",
-      usage: {
-        count: usage.count,
-        limit: monthlyGenerationLimit,
-        period: usage.period,
-      },
-    });
-  }
-
   try {
+    const shop = await ensureShop(clientId);
+    const plan = await getPlanForShop(shop.id);
+    const usage = await getUsageForClient(clientId);
+
+    if (!shop.is_active) {
+      return res.status(403).json({
+        error: "This shop is not active.",
+      });
+    }
+
+    if (!plan.is_active || plan.status !== "active") {
+      return res.status(403).json({
+        error: "This shop does not have an active subscription.",
+      });
+    }
+
+    if (usage.count >= plan.monthly_generation_limit) {
+      return res.status(429).json({
+        error: "Monthly generation limit reached for this shop.",
+        usage: {
+          count: usage.count,
+          limit: plan.monthly_generation_limit,
+          period: usage.period,
+        },
+      });
+    }
+
     const response = await openai.responses.create({
       model: "gpt-5-mini",
       input: [
@@ -180,7 +238,8 @@ app.post("/generate-product-content", async (req, res) => {
 
     const rawOutput = response.output_text;
     const parsedOutput = JSON.parse(rawOutput);
-    const updatedUsage = await incrementUsage(clientId);
+    const updatedUsage = await incrementUsage(shop.id, clientId);
+    await recordUsageEvent(shop.id, updatedUsage.period, title);
 
     return res.json({
       description: parsedOutput.description,
@@ -188,8 +247,12 @@ app.post("/generate-product-content", async (req, res) => {
       composition: parsedOutput.composition,
       usage: {
         count: updatedUsage.count,
-        limit: monthlyGenerationLimit,
+        limit: plan.monthly_generation_limit,
         period: updatedUsage.period,
+      },
+      plan: {
+        id: plan.id,
+        name: plan.name,
       },
     });
   } catch (error) {
@@ -261,20 +324,21 @@ async function getUsageForClient(clientId) {
   return { count: 0, period };
 }
 
-async function incrementUsage(clientId) {
+async function incrementUsage(shopId, clientId) {
   if (pool) {
     const period = getCurrentUsagePeriod();
     const result = await pool.query(
       `
-        INSERT INTO client_usage (client_id, usage_period, usage_count)
-        VALUES ($1, $2, 1)
+        INSERT INTO client_usage (shop_id, client_id, usage_period, usage_count)
+        VALUES ($1, $2, $3, 1)
         ON CONFLICT (client_id, usage_period)
         DO UPDATE SET
+          shop_id = EXCLUDED.shop_id,
           usage_count = client_usage.usage_count + 1,
           updated_at = NOW()
         RETURNING usage_count
       `,
-      [clientId, period],
+      [shopId, clientId, period],
     );
 
     return {
@@ -303,7 +367,45 @@ async function initializeDatabase() {
   }
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS plans (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      monthly_generation_limit INTEGER NOT NULL,
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shops (
+      id SERIAL PRIMARY KEY,
+      client_id TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      plan_id INTEGER NOT NULL REFERENCES plans(id),
+      status TEXT NOT NULL DEFAULT 'active',
+      current_period_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      current_period_end TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (shop_id)
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS client_usage (
+      shop_id INTEGER REFERENCES shops(id) ON DELETE CASCADE,
       client_id TEXT NOT NULL,
       usage_period TEXT NOT NULL,
       usage_count INTEGER NOT NULL DEFAULT 0,
@@ -312,4 +414,175 @@ async function initializeDatabase() {
       PRIMARY KEY (client_id, usage_period)
     )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      usage_period TEXT NOT NULL,
+      event_type TEXT NOT NULL DEFAULT 'generation',
+      product_title TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await seedPlans();
+}
+
+async function seedPlans() {
+  if (!pool) {
+    return;
+  }
+
+  await pool.query(`
+    INSERT INTO plans (name, monthly_generation_limit, price_cents)
+    VALUES
+      ('free', 100, 0),
+      ('pro', 1000, 1900),
+      ('agency', 5000, 4900)
+    ON CONFLICT (name) DO UPDATE SET
+      monthly_generation_limit = EXCLUDED.monthly_generation_limit,
+      price_cents = EXCLUDED.price_cents,
+      updated_at = NOW()
+  `);
+}
+
+async function ensureShop(clientId) {
+  if (!pool) {
+    return {
+      id: 0,
+      client_id: clientId,
+      display_name: clientId,
+      is_active: true,
+    };
+  }
+
+  const existingShop = await pool.query(
+    `
+      SELECT id, client_id, display_name, is_active
+      FROM shops
+      WHERE client_id = $1
+    `,
+    [clientId],
+  );
+
+  if (existingShop.rows[0]) {
+    const shop = existingShop.rows[0];
+    await ensureSubscription(shop.id);
+    return shop;
+  }
+
+  const insertedShop = await pool.query(
+    `
+      INSERT INTO shops (client_id, display_name)
+      VALUES ($1, $2)
+      RETURNING id, client_id, display_name, is_active
+    `,
+    [clientId, clientId.replace(/^shopify-store:/, "")],
+  );
+
+  const shop = insertedShop.rows[0];
+  await ensureSubscription(shop.id);
+  return shop;
+}
+
+async function ensureSubscription(shopId) {
+  if (!pool) {
+    return;
+  }
+
+  const existing = await pool.query(
+    `
+      SELECT id
+      FROM subscriptions
+      WHERE shop_id = $1
+    `,
+    [shopId],
+  );
+
+  if (existing.rows[0]) {
+    return;
+  }
+
+  const defaultPlan = await pool.query(
+    `
+      SELECT id
+      FROM plans
+      WHERE name = $1
+      LIMIT 1
+    `,
+    [freePlanName],
+  );
+
+  const planId = defaultPlan.rows[0]?.id;
+
+  if (!planId) {
+    throw new Error(`Default plan "${freePlanName}" was not found.`);
+  }
+
+  await pool.query(
+    `
+      INSERT INTO subscriptions (shop_id, plan_id, status)
+      VALUES ($1, $2, 'active')
+      ON CONFLICT (shop_id) DO NOTHING
+    `,
+    [shopId, planId],
+  );
+}
+
+async function getPlanForShop(shopId) {
+  if (!pool) {
+    return {
+      id: 0,
+      name: freePlanName,
+      monthly_generation_limit: monthlyGenerationLimit,
+      price_cents: 0,
+      is_active: true,
+      status: "active",
+    };
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        plans.id,
+        plans.name,
+        plans.monthly_generation_limit,
+        plans.price_cents,
+        plans.is_active,
+        subscriptions.status
+      FROM subscriptions
+      JOIN plans ON plans.id = subscriptions.plan_id
+      WHERE subscriptions.shop_id = $1
+      LIMIT 1
+    `,
+    [shopId],
+  );
+
+  if (result.rows[0]) {
+    return result.rows[0];
+  }
+
+  return {
+    id: 0,
+    name: freePlanName,
+    monthly_generation_limit: monthlyGenerationLimit,
+    price_cents: 0,
+    is_active: true,
+    status: "active",
+  };
+}
+
+async function recordUsageEvent(shopId, usagePeriod, productTitle) {
+  if (!pool || !shopId) {
+    return;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO usage_events (shop_id, usage_period, event_type, product_title)
+      VALUES ($1, $2, 'generation', $3)
+    `,
+    [shopId, usagePeriod, productTitle],
+  );
 }
