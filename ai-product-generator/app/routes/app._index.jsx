@@ -81,32 +81,6 @@ export const action = async ({ request }) => {
   }
 
   try {
-    if (intent === "generate") {
-      const title = String(formData.get("title") || "").trim();
-
-      if (!title) {
-        return {
-          ok: false,
-          intent,
-          message: "Enter a product title first.",
-        };
-      }
-
-      const result = await backendRequest({
-        backend,
-        pathname: "/generate-product-content",
-        method: "POST",
-        body: { title, clientId },
-      });
-
-      return {
-        ok: true,
-        intent,
-        message: "Description generated successfully.",
-        generated: result,
-      };
-    }
-
     if (intent === "save-profile") {
       const businessType = String(formData.get("businessType") || "").trim();
       const brandTone = String(formData.get("brandTone") || "").trim();
@@ -192,7 +166,6 @@ export default function AppIndex() {
   const actionData = useActionData();
   const navigation = useNavigation();
   const revalidator = useRevalidator();
-  const isSubmitting = navigation.state === "submitting";
   const profile = data.shopStatus?.profile || emptyProfile;
   const needsProfile =
     !profile.business_type ||
@@ -209,8 +182,6 @@ export default function AppIndex() {
     paidPlans.find((plan) => plan.name !== currentPlanName)?.name ||
     paidPlans[0]?.name ||
     "";
-
-  const generated = actionData?.intent === "generate" ? actionData.generated : null;
 
   return (
     <s-page heading="AI Product Generator">
@@ -247,64 +218,6 @@ export default function AppIndex() {
             </s-paragraph>
           )}
         </s-stack>
-      </s-section>
-
-      <s-section heading="Generate description">
-        <Form method="post" action="?index">
-          <input type="hidden" name="intent" value="generate" />
-          <s-stack direction="block" gap="base">
-            {needsProfile && (
-              <div style={getNoticeStyle(false)}>
-                Save your business profile below first so the AI can match your
-                store's style.
-              </div>
-            )}
-            <label htmlFor="title">Product title</label>
-            <input
-              id="title"
-              name="title"
-              type="text"
-              placeholder="Adidas Samba OG"
-              style={inputStyle}
-            />
-            <s-button
-              type="submit"
-              disabled={needsProfile}
-              {...(isSubmitting ? { loading: true } : {})}
-            >
-              Generate content
-            </s-button>
-          </s-stack>
-        </Form>
-
-        {actionData?.message && actionData.intent === "generate" && (
-          <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
-        )}
-
-        {generated && (
-          <s-stack direction="block" gap="base">
-            <s-box padding="base" borderWidth="base" borderRadius="base">
-              <strong>Description</strong>
-              <p style={paragraphStyle}>{generated.description}</p>
-            </s-box>
-            <s-box padding="base" borderWidth="base" borderRadius="base">
-              <strong>Highlights</strong>
-              <ul style={listStyle}>
-                {generated.highlights?.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </s-box>
-            <s-box padding="base" borderWidth="base" borderRadius="base">
-              <strong>Composition</strong>
-              <ul style={listStyle}>
-                {generated.composition?.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </s-box>
-          </s-stack>
-        )}
       </s-section>
 
       <s-section
@@ -540,17 +453,6 @@ const inputStyle = {
   border: "1px solid #c9cccf",
   boxSizing: "border-box",
   font: "inherit",
-};
-
-const paragraphStyle = {
-  margin: "10px 0 0",
-  lineHeight: 1.5,
-};
-
-const listStyle = {
-  margin: "10px 0 0",
-  paddingLeft: "18px",
-  lineHeight: 1.5,
 };
 
 const planGridStyle = {

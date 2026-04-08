@@ -900,6 +900,7 @@ async function initializeDatabase() {
   }
 
   await seedPlans();
+  await syncLegacyPlanAssignments();
 }
 
 async function listPlans() {
@@ -1002,6 +1003,84 @@ async function seedPlans() {
     SET is_active = FALSE, updated_at = NOW()
     WHERE name = 'agency'
   `);
+}
+
+async function syncLegacyPlanAssignments() {
+  if (!pool) {
+    return;
+  }
+
+  const legacyPlanMappings = [
+    { legacyName: "pro", currentName: "growth" },
+    { legacyName: "agency", currentName: "scale" },
+  ];
+
+  for (const mapping of legacyPlanMappings) {
+    const result = await pool.query(
+      `
+        SELECT
+          legacy.id AS legacy_id,
+          current_plan.id AS current_id
+        FROM plans AS legacy
+        JOIN plans AS current_plan
+          ON current_plan.name = $2
+        WHERE legacy.name = $1
+        LIMIT 1
+      `,
+      [mapping.legacyName, mapping.currentName],
+    );
+
+    const legacyId = result.rows[0]?.legacy_id;
+    const currentId = result.rows[0]?.current_id;
+
+    if (!legacyId || !currentId || legacyId === currentId) {
+      continue;
+    }
+
+    await pool.query(
+      `
+        UPDATE subscriptions
+        SET
+          plan_id = $2,
+          updated_at = NOW()
+        WHERE plan_id = $1
+      `,
+      [legacyId, currentId],
+    );
+
+    await pool.query(
+      `
+        UPDATE plan_requests
+        SET
+          requested_plan_id = $2,
+          updated_at = NOW()
+        WHERE requested_plan_id = $1
+      `,
+      [legacyId, currentId],
+    );
+
+    await pool.query(
+      `
+        UPDATE plan_requests
+        SET
+          current_plan_id = $2,
+          updated_at = NOW()
+        WHERE current_plan_id = $1
+      `,
+      [legacyId, currentId],
+    );
+
+    await pool.query(
+      `
+        UPDATE plans
+        SET
+          is_active = FALSE,
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [legacyId],
+    );
+  }
 }
 
 async function ensureShop(clientId) {
