@@ -50,34 +50,30 @@ statusFilter.addEventListener("change", async () => {
   await loadRequests();
 });
 
-requestsList.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const form = event.target.closest(".requestActionForm");
-
-  if (!form) {
-    return;
-  }
-
-  const submitter = event.submitter;
-  const action = submitter?.value || "";
-  const requestId = form.getAttribute("data-request-id");
-  const notesField = form.querySelector("textarea");
+window.handlePlanRequestActionFromButton = async function handlePlanRequestActionFromButton(
+  button,
+  action,
+  requestId,
+) {
+  const form = button.closest(".requestActionForm");
+  const notesField = form?.querySelector("textarea");
   const adminNotes = notesField?.value?.trim() || "";
-  const buttons = form.querySelectorAll("button");
+  const buttons = form?.querySelectorAll("button") || [];
 
-  buttons.forEach((button) => {
-    button.disabled = true;
+  setStatus(`${action === "approve" ? "Approving" : "Rejecting"} request...`);
+
+  buttons.forEach((currentButton) => {
+    currentButton.disabled = true;
   });
 
   try {
     await handleRequestAction(action, requestId, adminNotes);
   } finally {
-    buttons.forEach((button) => {
-      button.disabled = false;
+    buttons.forEach((currentButton) => {
+      currentButton.disabled = false;
     });
   }
-});
+};
 
 async function initialize() {
   const savedToken = localStorage.getItem(STORAGE_KEY) || "";
@@ -193,8 +189,19 @@ function renderActions(requestId) {
     <form class="requestActionForm requestActions" data-request-id="${requestId}">
       <textarea id="notes-${requestId}" rows="3" placeholder="Optional admin note"></textarea>
       <div class="requestButtons">
-        <button type="submit" value="approve">Approve</button>
-        <button type="submit" value="reject" class="reject">Reject</button>
+        <button
+          type="button"
+          onclick="window.handlePlanRequestActionFromButton(this, 'approve', '${requestId}')"
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          class="reject"
+          onclick="window.handlePlanRequestActionFromButton(this, 'reject', '${requestId}')"
+        >
+          Reject
+        </button>
       </div>
     </form>
   `;
