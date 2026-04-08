@@ -1,5 +1,6 @@
 require("dotenv").config();
 
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
@@ -11,6 +12,13 @@ const monthlyGenerationLimit =
   Number(process.env.MONTHLY_GENERATION_LIMIT) || 100;
 const freePlanName = process.env.DEFAULT_PLAN_NAME || "free";
 const requiredAccessToken = process.env.ACCESS_TOKEN || "";
+const adminPanelToken = process.env.ADMIN_PANEL_TOKEN || "";
+const paymentInstructions =
+  process.env.PAYMENT_INSTRUCTIONS ||
+  "After choosing a paid plan, send your payment locally and include the transaction reference in your request. You can also upload a payment proof screenshot.";
+const supportContact =
+  process.env.SUPPORT_CONTACT || "Contact support to confirm your payment.";
+const maxProofDataUrlLength = 2500000;
 const defaultAllowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5000",
@@ -67,7 +75,16 @@ app.use(
     },
   }),
 );
-app.use(express.json());
+
+app.use(express.json({ limit: "3mb" }));
+app.use(
+  "/admin/assets",
+  express.static(path.join(__dirname, "admin-panel")),
+);
+
+app.get("/admin", (_req, res) => {
+  res.sendFile(path.join(__dirname, "admin-panel", "admin.html"));
+});
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -75,10 +92,35 @@ app.get("/health", (_req, res) => {
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
     allowedOrigins,
     authEnabled: Boolean(requiredAccessToken),
+    adminEnabled: Boolean(adminPanelToken),
     monthlyGenerationLimit,
     databaseEnabled: Boolean(pool),
     defaultPlanName: freePlanName,
+    manualBillingEnabled: true,
   });
+});
+
+app.get("/plans", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const plans = await listPlans();
+    return res.json({
+      plans: plans.map((plan) => ({
+        ...plan,
+        isPaid: plan.price_cents > 0,
+      })),
+      paymentInstructions,
+      supportContact,
+    });
+  } catch (error) {
+    console.error("Failed to list plans:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load plans.",
+    });
+  }
 });
 
 app.get("/usage", async (req, res) => {
@@ -119,6 +161,7 @@ app.get("/shop-status", async (req, res) => {
     const shop = await ensureShop(clientId);
     const plan = await getPlanForShop(shop.id);
     const usage = await getUsageForClient(clientId);
+    const latestRequest = await getLatestPlanRequestForShop(shop.id);
 
     return res.json({
       clientId,
@@ -126,11 +169,111 @@ app.get("/shop-status", async (req, res) => {
       plan,
       usage,
       remaining: Math.max(plan.monthly_generation_limit - usage.count, 0),
+      latestRequest,
+      paymentInstructions,
+      supportContact,
     });
   } catch (error) {
     console.error("Failed to fetch shop status:", error);
     return res.status(500).json({
       error: error?.message || "Failed to fetch shop status.",
+    });
+  }
+});
+
+app.post("/plan-requests", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({
+      error: "Unauthorized. Missing or invalid extension access token.",
+    });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const requestedPlanName =
+      typeof req.body?.requestedPlanName === "string"
+        ? req.body.requestedPlanName.trim().toLowerCase()
+        : "";
+    const contactName = sanitizeText(req.body?.contactName, 120);
+    const contactChannel = sanitizeText(req.body?.contactChannel, 200);
+    const paymentMethod = sanitizeText(req.body?.paymentMethod, 80);
+    const paymentReference = sanitizeText(req.body?.paymentReference, 160);
+    const customerNotes = sanitizeText(req.body?.notes, 1000);
+    const proofFileName = sanitizeText(req.body?.proofFileName, 255);
+    const proofMimeType = sanitizeText(req.body?.proofMimeType, 120);
+    const proofDataUrl = sanitizeProofDataUrl(req.body?.proofDataUrl);
+
+    if (!requestedPlanName) {
+      return res.status(400).json({ error: "Requested plan is required." });
+    }
+
+    if (!contactChannel) {
+      return res
+        .status(400)
+        .json({ error: "Please provide a contact channel for follow-up." });
+    }
+
+    const shop = await ensureShop(clientId);
+    const currentPlan = await getPlanForShop(shop.id);
+    const requestedPlan = await getPlanByName(requestedPlanName);
+
+    if (!requestedPlan || !requestedPlan.is_active) {
+      return res.status(404).json({ error: "Requested plan was not found." });
+    }
+
+    if (requestedPlan.price_cents <= 0) {
+      return res.status(400).json({
+        error: "Only paid plans can be requested through manual approval.",
+      });
+    }
+
+    if (
+      currentPlan.name === requestedPlan.name &&
+      currentPlan.status === "active" &&
+      currentPlan.is_active
+    ) {
+      return res.status(400).json({
+        error: "This shop is already on the selected plan.",
+      });
+    }
+
+    const existingPendingRequest = await getPendingPlanRequestForShop(
+      shop.id,
+      requestedPlan.id,
+    );
+
+    if (existingPendingRequest) {
+      return res.status(409).json({
+        error:
+          "There is already a pending request for this plan. We will review it after payment is confirmed.",
+      });
+    }
+
+    const insertedRequest = await createPlanRequest({
+      shopId: shop.id,
+      currentPlanId: currentPlan.id || null,
+      requestedPlanId: requestedPlan.id,
+      contactName,
+      contactChannel,
+      paymentMethod,
+      paymentReference,
+      customerNotes,
+      proofFileName,
+      proofMimeType,
+      proofDataUrl,
+    });
+
+    return res.status(201).json({
+      message:
+        "Your upgrade request was sent successfully. We will activate the paid plan after confirming your payment.",
+      request: insertedRequest,
+      paymentInstructions,
+      supportContact,
+    });
+  } catch (error) {
+    console.error("Failed to create plan request:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to create the plan request.",
     });
   }
 });
@@ -236,8 +379,7 @@ app.post("/generate-product-content", async (req, res) => {
       },
     });
 
-    const rawOutput = response.output_text;
-    const parsedOutput = JSON.parse(rawOutput);
+    const parsedOutput = JSON.parse(response.output_text);
     const updatedUsage = await incrementUsage(shop.id, clientId);
     await recordUsageEvent(shop.id, updatedUsage.period, title);
 
@@ -264,6 +406,109 @@ app.post("/generate-product-content", async (req, res) => {
   }
 });
 
+app.get("/admin/api/dashboard", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const [summary, requests] = await Promise.all([
+      getAdminSummary(),
+      listPlanRequests("pending"),
+    ]);
+
+    return res.json({
+      summary,
+      pendingRequests: requests,
+      paymentInstructions,
+      supportContact,
+    });
+  } catch (error) {
+    console.error("Failed to load admin dashboard:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load admin dashboard.",
+    });
+  }
+});
+
+app.get("/admin/api/plan-requests", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const requests = await listPlanRequests(req.query.status);
+    return res.json({ requests });
+  } catch (error) {
+    console.error("Failed to load plan requests:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load plan requests.",
+    });
+  }
+});
+
+app.post("/admin/api/plan-requests/:id/approve", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const requestId = Number(req.params.id);
+    const adminNotes = sanitizeText(req.body?.adminNotes, 1000);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ error: "Invalid request id." });
+    }
+
+    const updatedRequest = await approvePlanRequest(
+      requestId,
+      adminNotes,
+      "manual-admin",
+    );
+
+    return res.json({
+      message: "Plan request approved and subscription updated.",
+      request: updatedRequest,
+    });
+  } catch (error) {
+    console.error("Failed to approve plan request:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to approve the request.",
+    });
+  }
+});
+
+app.post("/admin/api/plan-requests/:id/reject", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const requestId = Number(req.params.id);
+    const adminNotes = sanitizeText(req.body?.adminNotes, 1000);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ error: "Invalid request id." });
+    }
+
+    const updatedRequest = await rejectPlanRequest(
+      requestId,
+      adminNotes,
+      "manual-admin",
+    );
+
+    return res.json({
+      message: "Plan request rejected.",
+      request: updatedRequest,
+    });
+  } catch (error) {
+    console.error("Failed to reject plan request:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to reject the request.",
+    });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
@@ -276,6 +521,14 @@ function isAuthorized(req) {
   return req.get("x-extension-token") === requiredAccessToken;
 }
 
+function isAdminAuthorized(req) {
+  if (!adminPanelToken) {
+    return false;
+  }
+
+  return req.get("x-admin-token") === adminPanelToken;
+}
+
 function normalizeClientId(value) {
   if (typeof value !== "string") {
     return "unknown-client";
@@ -283,6 +536,36 @@ function normalizeClientId(value) {
 
   const cleaned = value.trim().toLowerCase();
   return cleaned || "unknown-client";
+}
+
+function sanitizeText(value, maxLength) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim().slice(0, maxLength);
+}
+
+function sanitizeProofDataUrl(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  if (!trimmed.startsWith("data:image/")) {
+    throw new Error("Payment proof must be an image file.");
+  }
+
+  if (trimmed.length > maxProofDataUrlLength) {
+    throw new Error("Payment proof is too large. Please upload a smaller file.");
+  }
+
+  return trimmed;
 }
 
 function getCurrentUsagePeriod() {
@@ -438,6 +721,31 @@ async function initializeDatabase() {
         ADD COLUMN IF NOT EXISTS shop_id INTEGER REFERENCES shops(id) ON DELETE CASCADE
       `,
     },
+    {
+      version: "004_plan_requests",
+      sql: `
+        CREATE TABLE IF NOT EXISTS plan_requests (
+          id SERIAL PRIMARY KEY,
+          shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+          current_plan_id INTEGER REFERENCES plans(id),
+          requested_plan_id INTEGER NOT NULL REFERENCES plans(id),
+          status TEXT NOT NULL DEFAULT 'pending',
+          contact_name TEXT,
+          contact_channel TEXT NOT NULL DEFAULT '',
+          payment_method TEXT,
+          payment_reference TEXT,
+          customer_notes TEXT,
+          admin_notes TEXT,
+          proof_file_name TEXT,
+          proof_mime_type TEXT,
+          proof_data_url TEXT,
+          resolved_by TEXT,
+          resolved_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `,
+    },
   ];
 
   for (const migration of migrations) {
@@ -475,6 +783,59 @@ async function initializeDatabase() {
   await seedPlans();
 }
 
+async function listPlans() {
+  if (!pool) {
+    return [
+      {
+        id: 0,
+        name: "free",
+        monthly_generation_limit: monthlyGenerationLimit,
+        price_cents: 0,
+        is_active: true,
+      },
+    ];
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id, name, monthly_generation_limit, price_cents, is_active
+      FROM plans
+      WHERE is_active = TRUE
+      ORDER BY price_cents ASC, id ASC
+    `,
+  );
+
+  return result.rows;
+}
+
+async function getPlanByName(name) {
+  if (!pool) {
+    if (name === freePlanName) {
+      return {
+        id: 0,
+        name: freePlanName,
+        monthly_generation_limit: monthlyGenerationLimit,
+        price_cents: 0,
+        is_active: true,
+      };
+    }
+
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id, name, monthly_generation_limit, price_cents, is_active
+      FROM plans
+      WHERE name = $1
+      LIMIT 1
+    `,
+    [name],
+  );
+
+  return result.rows[0] || null;
+}
+
 async function seedPlans() {
   if (!pool) {
     return;
@@ -489,6 +850,7 @@ async function seedPlans() {
     ON CONFLICT (name) DO UPDATE SET
       monthly_generation_limit = EXCLUDED.monthly_generation_limit,
       price_cents = EXCLUDED.price_cents,
+      is_active = TRUE,
       updated_at = NOW()
   `);
 }
@@ -619,6 +981,112 @@ async function getPlanForShop(shopId) {
   };
 }
 
+async function getLatestPlanRequestForShop(shopId) {
+  if (!pool || !shopId) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        plan_requests.id,
+        plan_requests.status,
+        plan_requests.contact_name,
+        plan_requests.contact_channel,
+        plan_requests.payment_method,
+        plan_requests.payment_reference,
+        plan_requests.customer_notes,
+        plan_requests.created_at,
+        plan_requests.updated_at,
+        requested_plans.name AS requested_plan_name,
+        requested_plans.price_cents AS requested_plan_price_cents
+      FROM plan_requests
+      JOIN plans AS requested_plans
+        ON requested_plans.id = plan_requests.requested_plan_id
+      WHERE plan_requests.shop_id = $1
+      ORDER BY plan_requests.created_at DESC
+      LIMIT 1
+    `,
+    [shopId],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function getPendingPlanRequestForShop(shopId, requestedPlanId) {
+  if (!pool) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id
+      FROM plan_requests
+      WHERE shop_id = $1
+        AND requested_plan_id = $2
+        AND status = 'pending'
+      LIMIT 1
+    `,
+    [shopId, requestedPlanId],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function createPlanRequest({
+  shopId,
+  currentPlanId,
+  requestedPlanId,
+  contactName,
+  contactChannel,
+  paymentMethod,
+  paymentReference,
+  customerNotes,
+  proofFileName,
+  proofMimeType,
+  proofDataUrl,
+}) {
+  if (!pool) {
+    throw new Error("Manual plan requests require a database connection.");
+  }
+
+  const result = await pool.query(
+    `
+      INSERT INTO plan_requests (
+        shop_id,
+        current_plan_id,
+        requested_plan_id,
+        status,
+        contact_name,
+        contact_channel,
+        payment_method,
+        payment_reference,
+        customer_notes,
+        proof_file_name,
+        proof_mime_type,
+        proof_data_url
+      )
+      VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id, status, created_at
+    `,
+    [
+      shopId,
+      currentPlanId,
+      requestedPlanId,
+      contactName,
+      contactChannel,
+      paymentMethod,
+      paymentReference,
+      customerNotes,
+      proofFileName,
+      proofMimeType,
+      proofDataUrl,
+    ],
+  );
+
+  return result.rows[0];
+}
+
 async function recordUsageEvent(shopId, usagePeriod, productTitle) {
   if (!pool || !shopId) {
     return;
@@ -631,4 +1099,211 @@ async function recordUsageEvent(shopId, usagePeriod, productTitle) {
     `,
     [shopId, usagePeriod, productTitle],
   );
+}
+
+async function listPlanRequests(status) {
+  if (!pool) {
+    return [];
+  }
+
+  const values = [];
+  const whereClauses = [];
+
+  if (typeof status === "string" && status.trim()) {
+    values.push(status.trim().toLowerCase());
+    whereClauses.push(`plan_requests.status = $${values.length}`);
+  }
+
+  const whereSql =
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+  const result = await pool.query(
+    `
+      SELECT
+        plan_requests.id,
+        plan_requests.status,
+        plan_requests.contact_name,
+        plan_requests.contact_channel,
+        plan_requests.payment_method,
+        plan_requests.payment_reference,
+        plan_requests.customer_notes,
+        plan_requests.admin_notes,
+        plan_requests.proof_file_name,
+        plan_requests.proof_mime_type,
+        plan_requests.proof_data_url,
+        plan_requests.resolved_by,
+        plan_requests.resolved_at,
+        plan_requests.created_at,
+        plan_requests.updated_at,
+        shops.id AS shop_id,
+        shops.client_id,
+        shops.display_name,
+        current_plans.name AS current_plan_name,
+        requested_plans.name AS requested_plan_name,
+        requested_plans.price_cents AS requested_plan_price_cents
+      FROM plan_requests
+      JOIN shops ON shops.id = plan_requests.shop_id
+      LEFT JOIN plans AS current_plans
+        ON current_plans.id = plan_requests.current_plan_id
+      JOIN plans AS requested_plans
+        ON requested_plans.id = plan_requests.requested_plan_id
+      ${whereSql}
+      ORDER BY
+        CASE WHEN plan_requests.status = 'pending' THEN 0 ELSE 1 END,
+        plan_requests.created_at DESC
+    `,
+    values,
+  );
+
+  return result.rows;
+}
+
+async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
+  if (!pool) {
+    throw new Error("Admin approval requires a database connection.");
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const requestResult = await client.query(
+      `
+        SELECT
+          plan_requests.id,
+          plan_requests.shop_id,
+          plan_requests.requested_plan_id,
+          plan_requests.status
+        FROM plan_requests
+        WHERE plan_requests.id = $1
+        FOR UPDATE
+      `,
+      [requestId],
+    );
+
+    const requestRow = requestResult.rows[0];
+
+    if (!requestRow) {
+      throw new Error("Plan request not found.");
+    }
+
+    if (requestRow.status !== "pending") {
+      throw new Error("Only pending requests can be approved.");
+    }
+
+    await client.query(
+      `
+        INSERT INTO subscriptions (
+          shop_id,
+          plan_id,
+          status,
+          current_period_start,
+          current_period_end,
+          updated_at
+        )
+        VALUES ($1, $2, 'active', NOW(), NULL, NOW())
+        ON CONFLICT (shop_id)
+        DO UPDATE SET
+          plan_id = EXCLUDED.plan_id,
+          status = 'active',
+          current_period_start = NOW(),
+          current_period_end = NULL,
+          updated_at = NOW()
+      `,
+      [requestRow.shop_id, requestRow.requested_plan_id],
+    );
+
+    await client.query(
+      `
+        UPDATE plan_requests
+        SET
+          status = 'approved',
+          admin_notes = $2,
+          resolved_by = $3,
+          resolved_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [requestId, adminNotes, resolvedBy],
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return getPlanRequestById(requestId);
+}
+
+async function rejectPlanRequest(requestId, adminNotes, resolvedBy) {
+  if (!pool) {
+    throw new Error("Admin rejection requires a database connection.");
+  }
+
+  const result = await pool.query(
+    `
+      UPDATE plan_requests
+      SET
+        status = 'rejected',
+        admin_notes = $2,
+        resolved_by = $3,
+        resolved_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $1
+        AND status = 'pending'
+      RETURNING id
+    `,
+    [requestId, adminNotes, resolvedBy],
+  );
+
+  if (!result.rows[0]) {
+    throw new Error("Pending plan request not found.");
+  }
+
+  return getPlanRequestById(requestId);
+}
+
+async function getPlanRequestById(requestId) {
+  const requests = await listPlanRequests();
+  return requests.find((request) => request.id === requestId) || null;
+}
+
+async function getAdminSummary() {
+  if (!pool) {
+    return {
+      pendingRequests: 0,
+      approvedRequests: 0,
+      activeShops: 0,
+      totalUsageEvents: 0,
+    };
+  }
+
+  const [requestCounts, activeShops, usageEvents] = await Promise.all([
+    pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending') AS pending_requests,
+        COUNT(*) FILTER (WHERE status = 'approved') AS approved_requests
+      FROM plan_requests
+    `),
+    pool.query(`
+      SELECT COUNT(*) AS active_shops
+      FROM shops
+      WHERE is_active = TRUE
+    `),
+    pool.query(`
+      SELECT COUNT(*) AS total_usage_events
+      FROM usage_events
+    `),
+  ]);
+
+  return {
+    pendingRequests: Number(requestCounts.rows[0]?.pending_requests || 0),
+    approvedRequests: Number(requestCounts.rows[0]?.approved_requests || 0),
+    activeShops: Number(activeShops.rows[0]?.active_shops || 0),
+    totalUsageEvents: Number(usageEvents.rows[0]?.total_usage_events || 0),
+  };
 }

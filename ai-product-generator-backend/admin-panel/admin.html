@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Generator Admin</title>
+  <link rel="stylesheet" href="/admin/assets/admin.css">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Manual Billing Admin</p>
+        <h1>Upgrade Requests</h1>
+        <p class="subtitle">Review payment requests, approve paid plans, and keep shop access under your control.</p>
+      </div>
+      <button id="logoutBtn" class="ghost">Log Out</button>
+    </section>
+
+    <section id="loginCard" class="card">
+      <h2>Admin Login</h2>
+      <p class="muted">Use the same secret you set in Railway as <code>ADMIN_PANEL_TOKEN</code>.</p>
+      <label class="fieldLabel" for="adminToken">Admin Token</label>
+      <input id="adminToken" type="password" placeholder="Paste admin token" />
+      <button id="loginBtn">Open Dashboard</button>
+    </section>
+
+    <section id="dashboard" class="hidden">
+      <div class="summaryGrid">
+        <article class="metricCard">
+          <span>Pending Requests</span>
+          <strong id="pendingCount">0</strong>
+        </article>
+        <article class="metricCard">
+          <span>Approved Requests</span>
+          <strong id="approvedCount">0</strong>
+        </article>
+        <article class="metricCard">
+          <span>Active Shops</span>
+          <strong id="activeShops">0</strong>
+        </article>
+        <article class="metricCard">
+          <span>Total Generations</span>
+          <strong id="totalUsage">0</strong>
+        </article>
+      </div>
+
+      <section class="card infoCard">
+        <div>
+          <h2>Manual Billing Notes</h2>
+          <p id="paymentInstructions" class="muted"></p>
+          <p id="supportContact" class="muted"></p>
+        </div>
+        <div class="filters">
+          <label for="statusFilter">Request Filter</label>
+          <select id="statusFilter">
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All</option>
+          </select>
+          <button id="refreshBtn" class="secondary">Refresh</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="sectionHead">
+          <h2>Plan Requests</h2>
+          <p class="muted">Approve a request after you confirm the local payment.</p>
+        </div>
+        <div id="requestsList" class="requestList"></div>
+      </section>
+    </section>
+
+    <p id="status" class="status"></p>
+  </main>
+
+  <script src="/admin/assets/admin.js"></script>
+</body>
+</html>

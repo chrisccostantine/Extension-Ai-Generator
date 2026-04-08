@@ -1,0 +1,210 @@
+body {
+  margin: 0;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: linear-gradient(180deg, #10121d 0%, #171b2a 100%);
+  color: #f4f5f7;
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+.hero,
+.sectionHead,
+.filters,
+.requestActions,
+.requestMeta {
+  display: flex;
+  gap: 16px;
+}
+
+.hero,
+.sectionHead,
+.requestActions,
+.requestMeta {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #8aa4ff;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+.subtitle,
+.muted {
+  color: #afb7d0;
+}
+
+.card,
+.metricCard {
+  background: rgba(21, 25, 39, 0.88);
+  border: 1px solid rgba(138, 164, 255, 0.16);
+  border-radius: 18px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+}
+
+.card {
+  padding: 20px;
+  margin-top: 18px;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.metricCard {
+  padding: 20px;
+}
+
+.metricCard span {
+  display: block;
+  color: #9aa6cb;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.metricCard strong {
+  font-size: 34px;
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: #c7cce0;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(140, 153, 194, 0.25);
+  background: #0f1422;
+  color: #f4f5f7;
+  padding: 12px 14px;
+}
+
+button {
+  border: none;
+  border-radius: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  background: #8aa4ff;
+  color: #11152a;
+  font-weight: 700;
+}
+
+button.secondary {
+  background: #25304d;
+  color: #f4f5f7;
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid rgba(140, 153, 194, 0.28);
+  color: #e2e6f3;
+}
+
+button.reject {
+  background: #4f2432;
+  color: #ffdfe7;
+}
+
+.infoCard,
+.filters {
+  align-items: end;
+}
+
+.filters {
+  min-width: 220px;
+  flex-direction: column;
+}
+
+.requestList {
+  display: grid;
+  gap: 16px;
+}
+
+.requestCard {
+  padding: 18px;
+  border-radius: 16px;
+  background: #0f1422;
+  border: 1px solid rgba(140, 153, 194, 0.18);
+}
+
+.requestMeta {
+  flex-wrap: wrap;
+  color: #c8d1ee;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pill.pending {
+  background: rgba(255, 198, 64, 0.18);
+  color: #ffd874;
+}
+
+.pill.approved {
+  background: rgba(73, 214, 145, 0.16);
+  color: #86f0b4;
+}
+
+.pill.rejected {
+  background: rgba(255, 109, 109, 0.16);
+  color: #ffb0b0;
+}
+
+.requestNotes {
+  margin: 12px 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.proofLink {
+  color: #9ab0ff;
+}
+
+.status {
+  min-height: 22px;
+  margin-top: 16px;
+  color: #c9d3f8;
+}
+
+.hidden {
+  display: none;
+}

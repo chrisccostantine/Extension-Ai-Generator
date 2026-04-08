@@ -8,14 +8,65 @@
 <body>
   <div class="container">
     <h2>AI Product Generator</h2>
-    <p class="subtitle">Create Shopify product copy from the current product title.</p>
-    <label class="fieldLabel" for="backendUrl">Backend URL</label>
-    <input id="backendUrl" type="url" />
-    <label class="fieldLabel" for="accessToken">Access Token</label>
-    <input id="accessToken" type="password" />
-    <p class="helperText">Use the same token you set as `ACCESS_TOKEN` in Railway.</p>
-    <button id="generateBtn">Generate Description</button>
-    <button id="inspectBtn" class="secondary">Inspect Editor</button>
+    <p class="subtitle">Create Shopify product copy and manage paid-plan requests from the current store.</p>
+
+    <section class="panel">
+      <h3>Connection</h3>
+      <label class="fieldLabel" for="backendUrl">Backend URL</label>
+      <input id="backendUrl" type="url" />
+      <label class="fieldLabel" for="accessToken">Access Token</label>
+      <input id="accessToken" type="password" />
+      <p class="helperText">Use the same token you set as `ACCESS_TOKEN` in Railway.</p>
+    </section>
+
+    <section class="panel">
+      <div class="sectionHead">
+        <h3>Store Plan</h3>
+        <button id="refreshStatusBtn" class="secondary compact">Refresh</button>
+      </div>
+      <div id="planCard" class="planCard">
+        <p class="planLabel">Current Plan</p>
+        <strong id="currentPlan">Loading...</strong>
+        <p id="usageSummary" class="helperText">Waiting for store status...</p>
+        <p id="requestSummary" class="helperText"></p>
+      </div>
+      <p id="paymentInstructions" class="helperText"></p>
+    </section>
+
+    <section class="panel">
+      <button id="generateBtn">Generate Description</button>
+      <button id="inspectBtn" class="secondary">Inspect Editor</button>
+      <button id="toggleRequestBtn" class="secondary">Request Paid Plan</button>
+    </section>
+
+    <section id="requestPanel" class="panel hidden">
+      <h3>Paid Plan Request</h3>
+      <label class="fieldLabel" for="planSelect">Choose Plan</label>
+      <select id="planSelect"></select>
+
+      <label class="fieldLabel" for="contactName">Your Name</label>
+      <input id="contactName" type="text" placeholder="Optional name" />
+
+      <label class="fieldLabel" for="contactChannel">WhatsApp / Email / Phone</label>
+      <input id="contactChannel" type="text" placeholder="Required contact info" />
+
+      <label class="fieldLabel" for="paymentMethod">Payment Method</label>
+      <input id="paymentMethod" type="text" placeholder="Cash, bank transfer, OMT, Whish..." />
+
+      <label class="fieldLabel" for="paymentReference">Payment Reference</label>
+      <input id="paymentReference" type="text" placeholder="Transaction number or note" />
+
+      <label class="fieldLabel" for="requestNotes">Notes</label>
+      <textarea id="requestNotes" rows="3" placeholder="Anything you want us to know"></textarea>
+
+      <label class="fieldLabel" for="proofFile">Payment Proof</label>
+      <input id="proofFile" type="file" accept="image/*" />
+      <p class="helperText">Optional screenshot of the payment receipt. Keep it small for faster upload.</p>
+
+      <button id="submitRequestBtn">Send Upgrade Request</button>
+      <button id="openAdminBtn" class="secondary">Open Admin Panel</button>
+    </section>
+
     <p id="status"></p>
   </div>
   <script src="popup.js"></script>

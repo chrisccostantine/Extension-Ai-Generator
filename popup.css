@@ -1,14 +1,29 @@
 body {
   font-family: Arial, sans-serif;
-  width: 280px;
+  width: 340px;
   padding: 16px;
   margin: 0;
-  background: #f6f6f7;
+  background: #f3f4f6;
   color: #202223;
 }
 
 .container {
-  text-align: center;
+  display: grid;
+  gap: 12px;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #dde0e4;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.sectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 
 .fieldLabel {
@@ -19,7 +34,9 @@ body {
   color: #6d7175;
 }
 
-input[type="url"] {
+input,
+select,
+textarea {
   width: 100%;
   box-sizing: border-box;
   margin: 0 0 12px;
@@ -27,6 +44,7 @@ input[type="url"] {
   border: 1px solid #c9cccf;
   border-radius: 8px;
   font-size: 13px;
+  background: #ffffff;
 }
 
 button {
@@ -38,17 +56,23 @@ button {
   cursor: pointer;
   border-radius: 8px;
   font-size: 14px;
+  margin-top: 8px;
 }
 
 button:hover {
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
-.secondary {
-  margin-top: 8px;
+button.secondary {
   background: #ffffff;
   color: #202223;
   border: 1px solid #c9cccf;
+}
+
+button.compact {
+  width: auto;
+  margin-top: 0;
+  padding: 8px 12px;
 }
 
 button:disabled {
@@ -56,29 +80,55 @@ button:disabled {
   cursor: wait;
 }
 
-h2 {
+h2,
+h3 {
   margin: 0 0 8px;
-  font-size: 18px;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+h3 {
+  font-size: 15px;
 }
 
 .subtitle {
-  margin: 0 0 14px;
+  margin: 0;
   font-size: 13px;
   line-height: 1.4;
   color: #6d7175;
 }
 
 .helperText {
-  margin: -4px 0 12px;
-  text-align: left;
+  margin: -4px 0 0;
   font-size: 12px;
   line-height: 1.4;
   color: #6d7175;
 }
 
+.planCard {
+  background: #111827;
+  color: #f9fafb;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.planLabel {
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #9ca3af;
+}
+
 #status {
-  min-height: 36px;
-  margin-top: 10px;
+  min-height: 42px;
+  margin: 0;
   font-size: 14px;
   line-height: 1.4;
+}
+
+.hidden {
+  display: none;
 }
