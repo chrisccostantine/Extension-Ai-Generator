@@ -482,9 +482,8 @@ export default function AppIndex() {
           </s-paragraph>
         )}
         <s-paragraph>
-          This embedded app now talks to your Railway backend and uses the store
-          identity from Shopify, which is the path toward removing manual popup
-          configuration entirely.
+          Choose a plan, complete your payment, and send your transaction
+          reference so your upgrade can be reviewed and activated.
         </s-paragraph>
       </s-section>
     </s-page>
