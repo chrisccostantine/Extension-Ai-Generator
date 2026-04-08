@@ -50,6 +50,27 @@ statusFilter.addEventListener("change", async () => {
   await loadRequests();
 });
 
+requestsList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-action]");
+
+  if (!button) {
+    return;
+  }
+
+  const action = button.getAttribute("data-action");
+  const requestId = button.getAttribute("data-request-id");
+  const notesField = document.getElementById(`notes-${requestId}`);
+  const adminNotes = notesField?.value?.trim() || "";
+
+  button.disabled = true;
+
+  try {
+    await handleRequestAction(action, requestId, adminNotes);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 async function initialize() {
   const savedToken = localStorage.getItem(STORAGE_KEY) || "";
   adminTokenInput.value = savedToken;
@@ -157,24 +178,14 @@ function renderRequests(requests) {
       `,
     )
     .join("");
-
-  requestsList.querySelectorAll("[data-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const action = button.getAttribute("data-action");
-      const requestId = button.getAttribute("data-request-id");
-      const notesField = document.getElementById(`notes-${requestId}`);
-      const adminNotes = notesField?.value?.trim() || "";
-      await handleRequestAction(action, requestId, adminNotes);
-    });
-  });
 }
 
 function renderActions(requestId) {
   return `
     <div class="requestActions">
       <textarea id="notes-${requestId}" rows="3" placeholder="Optional admin note"></textarea>
-      <button data-action="approve" data-request-id="${requestId}">Approve</button>
-      <button class="reject" data-action="reject" data-request-id="${requestId}">Reject</button>
+      <button type="button" data-action="approve" data-request-id="${requestId}">Approve</button>
+      <button type="button" class="reject" data-action="reject" data-request-id="${requestId}">Reject</button>
     </div>
   `;
 }
