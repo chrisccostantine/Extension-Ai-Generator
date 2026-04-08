@@ -1,2 +1,4 @@
 ai-product-generator-backend/.env
 ai-product-generator-backend/node_modules/
+ai-product-generator/
+shopify-app/.env

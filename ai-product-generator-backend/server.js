@@ -162,6 +162,7 @@ app.get("/shop-status", async (req, res) => {
     const plan = await getPlanForShop(shop.id);
     const usage = await getUsageForClient(clientId);
     const latestRequest = await getLatestPlanRequestForShop(shop.id);
+    const profile = await getShopProfile(shop.id);
 
     return res.json({
       clientId,
@@ -170,6 +171,7 @@ app.get("/shop-status", async (req, res) => {
       usage,
       remaining: Math.max(plan.monthly_generation_limit - usage.count, 0),
       latestRequest,
+      profile,
       paymentInstructions,
       supportContact,
     });
@@ -177,6 +179,34 @@ app.get("/shop-status", async (req, res) => {
     console.error("Failed to fetch shop status:", error);
     return res.status(500).json({
       error: error?.message || "Failed to fetch shop status.",
+    });
+  }
+});
+
+app.post("/shop-profile", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const shop = await ensureShop(clientId);
+    const profile = await upsertShopProfile(shop.id, {
+      businessType: sanitizeText(req.body?.businessType, 120),
+      brandTone: sanitizeText(req.body?.brandTone, 120),
+      targetAudience: sanitizeText(req.body?.targetAudience, 160),
+      descriptionStyle: sanitizeText(req.body?.descriptionStyle, 120),
+      brandGuidelines: sanitizeText(req.body?.brandGuidelines, 2000),
+    });
+
+    return res.json({
+      message: "Shop profile saved successfully.",
+      profile,
+    });
+  } catch (error) {
+    console.error("Failed to save shop profile:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to save the shop profile.",
     });
   }
 });
@@ -303,6 +333,7 @@ app.post("/generate-product-content", async (req, res) => {
     const shop = await ensureShop(clientId);
     const plan = await getPlanForShop(shop.id);
     const usage = await getUsageForClient(clientId);
+    const profile = await getShopProfile(shop.id);
 
     if (!shop.is_active) {
       return res.status(403).json({
@@ -336,7 +367,7 @@ app.post("/generate-product-content", async (req, res) => {
             {
               type: "input_text",
               text:
-                "You write polished ecommerce product copy for premium Shopify stores. Return valid JSON only. Use a clean storefront style. description must be 1 to 2 short sentences and should read naturally, like a luxury ecommerce listing. highlights must be an array of exactly 6 concise product benefit lines. composition must be an array of exactly 2 concise material or construction lines. Do not mention SEO, AI, markdown, numbering, or extra keys. Avoid hype and keep the tone premium, modern, and product-focused.",
+                "You write polished ecommerce product copy for premium Shopify stores. Return valid JSON only. Use a clean storefront style. description must be 1 to 2 short sentences and should read naturally, like a luxury ecommerce listing. highlights must be an array of exactly 6 concise product benefit lines. composition must be an array of exactly 2 concise material or construction lines. Do not mention SEO, AI, markdown, numbering, or extra keys. Avoid hype and keep the tone premium, modern, and product-focused. Adapt the writing to the provided business profile so the copy feels specific to that store.",
             },
           ],
         },
@@ -345,7 +376,7 @@ app.post("/generate-product-content", async (req, res) => {
           content: [
             {
               type: "input_text",
-              text: `Product title: ${title}\nClient/store identifier: ${clientId}\nDesired output example structure:\nA super trainer for long runs and tempo runs. Featuring a responsive cushioning system and energy-return foam for a highly efficient ride.\n\nHighlights:\n- First highlight\n- Second highlight\n- Third highlight\n- Fourth highlight\n- Fifth highlight\n- Sixth highlight\n\nComposition:\n- Upper material\n- Outsole material`,
+              text: `Product title: ${title}\nClient/store identifier: ${clientId}\nBusiness profile:\n- Business type: ${profile.business_type || "general ecommerce"}\n- Brand tone: ${profile.brand_tone || "premium, modern"}\n- Target audience: ${profile.target_audience || "broad online shoppers"}\n- Description style: ${profile.description_style || "benefits-first"}\n- Brand guidelines: ${profile.brand_guidelines || "Keep it clean, polished, customer-facing, and specific to the product."}\n\nDesired output example structure:\nA super trainer for long runs and tempo runs. Featuring a responsive cushioning system and energy-return foam for a highly efficient ride.\n\nHighlights:\n- First highlight\n- Second highlight\n- Third highlight\n- Fourth highlight\n- Fifth highlight\n- Sixth highlight\n\nComposition:\n- Upper material\n- Outsole material`,
             },
           ],
         },
@@ -396,6 +427,7 @@ app.post("/generate-product-content", async (req, res) => {
         id: plan.id,
         name: plan.name,
       },
+      profile,
     });
   } catch (error) {
     console.error("Failed to generate product content:", error);
@@ -746,6 +778,21 @@ async function initializeDatabase() {
         )
       `,
     },
+    {
+      version: "005_shop_profiles",
+      sql: `
+        CREATE TABLE IF NOT EXISTS shop_profiles (
+          shop_id INTEGER PRIMARY KEY REFERENCES shops(id) ON DELETE CASCADE,
+          business_type TEXT NOT NULL DEFAULT '',
+          brand_tone TEXT NOT NULL DEFAULT '',
+          target_audience TEXT NOT NULL DEFAULT '',
+          description_style TEXT NOT NULL DEFAULT '',
+          brand_guidelines TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `,
+    },
   ];
 
   for (const migration of migrations) {
@@ -1011,6 +1058,87 @@ async function getLatestPlanRequestForShop(shopId) {
   );
 
   return result.rows[0] || null;
+}
+
+async function getShopProfile(shopId) {
+  const emptyProfile = {
+    business_type: "",
+    brand_tone: "",
+    target_audience: "",
+    description_style: "",
+    brand_guidelines: "",
+  };
+
+  if (!pool || !shopId) {
+    return emptyProfile;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        business_type,
+        brand_tone,
+        target_audience,
+        description_style,
+        brand_guidelines
+      FROM shop_profiles
+      WHERE shop_id = $1
+      LIMIT 1
+    `,
+    [shopId],
+  );
+
+  return result.rows[0] || emptyProfile;
+}
+
+async function upsertShopProfile(shopId, profile) {
+  if (!pool) {
+    return {
+      business_type: profile.businessType || "",
+      brand_tone: profile.brandTone || "",
+      target_audience: profile.targetAudience || "",
+      description_style: profile.descriptionStyle || "",
+      brand_guidelines: profile.brandGuidelines || "",
+    };
+  }
+
+  const result = await pool.query(
+    `
+      INSERT INTO shop_profiles (
+        shop_id,
+        business_type,
+        brand_tone,
+        target_audience,
+        description_style,
+        brand_guidelines
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (shop_id)
+      DO UPDATE SET
+        business_type = EXCLUDED.business_type,
+        brand_tone = EXCLUDED.brand_tone,
+        target_audience = EXCLUDED.target_audience,
+        description_style = EXCLUDED.description_style,
+        brand_guidelines = EXCLUDED.brand_guidelines,
+        updated_at = NOW()
+      RETURNING
+        business_type,
+        brand_tone,
+        target_audience,
+        description_style,
+        brand_guidelines
+    `,
+    [
+      shopId,
+      profile.businessType || "",
+      profile.brandTone || "",
+      profile.targetAudience || "",
+      profile.descriptionStyle || "",
+      profile.brandGuidelines || "",
+    ],
+  );
+
+  return result.rows[0];
 }
 
 async function getPendingPlanRequestForShop(shopId, requestedPlanId) {
