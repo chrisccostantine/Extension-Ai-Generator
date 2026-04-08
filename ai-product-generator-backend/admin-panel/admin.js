@@ -50,24 +50,32 @@ statusFilter.addEventListener("change", async () => {
   await loadRequests();
 });
 
-requestsList.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-action]");
+requestsList.addEventListener("submit", async (event) => {
+  event.preventDefault();
 
-  if (!button) {
+  const form = event.target.closest(".requestActionForm");
+
+  if (!form) {
     return;
   }
 
-  const action = button.getAttribute("data-action");
-  const requestId = button.getAttribute("data-request-id");
-  const notesField = document.getElementById(`notes-${requestId}`);
+  const submitter = event.submitter;
+  const action = submitter?.value || "";
+  const requestId = form.getAttribute("data-request-id");
+  const notesField = form.querySelector("textarea");
   const adminNotes = notesField?.value?.trim() || "";
+  const buttons = form.querySelectorAll("button");
 
-  button.disabled = true;
+  buttons.forEach((button) => {
+    button.disabled = true;
+  });
 
   try {
     await handleRequestAction(action, requestId, adminNotes);
   } finally {
-    button.disabled = false;
+    buttons.forEach((button) => {
+      button.disabled = false;
+    });
   }
 });
 
@@ -182,13 +190,13 @@ function renderRequests(requests) {
 
 function renderActions(requestId) {
   return `
-    <div class="requestActions">
+    <form class="requestActionForm requestActions" data-request-id="${requestId}">
       <textarea id="notes-${requestId}" rows="3" placeholder="Optional admin note"></textarea>
       <div class="requestButtons">
-        <button type="button" data-action="approve" data-request-id="${requestId}">Approve</button>
-        <button type="button" class="reject" data-action="reject" data-request-id="${requestId}">Reject</button>
+        <button type="submit" value="approve">Approve</button>
+        <button type="submit" value="reject" class="reject">Reject</button>
       </div>
-    </div>
+    </form>
   `;
 }
 
