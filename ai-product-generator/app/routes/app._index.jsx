@@ -13,7 +13,8 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
-  const audit = await getCatalogAudit(admin);
+  const auditFilters = getAuditFiltersFromRequest(request);
+  const audit = await getCatalogAudit(admin, auditFilters);
 
   if (!backend.baseUrl) {
     return {
@@ -25,11 +26,13 @@ export const loader = async ({ request }) => {
       paymentInstructions: "",
       supportContact: "",
       audit,
+      auditFilters,
+      presets: [],
     };
   }
 
   try {
-    const [shopStatus, plansPayload] = await Promise.all([
+    const [shopStatus, plansPayload, presetsPayload] = await Promise.all([
       backendRequest({
         backend,
         pathname: "/shop-status",
@@ -40,6 +43,12 @@ export const loader = async ({ request }) => {
         backend,
         pathname: "/plans",
         method: "GET",
+      }),
+      backendRequest({
+        backend,
+        pathname: "/content-presets",
+        method: "GET",
+        clientId,
       }),
     ]);
 
@@ -52,6 +61,8 @@ export const loader = async ({ request }) => {
       paymentInstructions: plansPayload.paymentInstructions || "",
       supportContact: plansPayload.supportContact || "",
       audit,
+      auditFilters,
+      presets: presetsPayload.presets || [],
     };
   } catch (error) {
     return {
@@ -64,6 +75,8 @@ export const loader = async ({ request }) => {
       paymentInstructions: "",
       supportContact: "",
       audit,
+      auditFilters,
+      presets: [],
     };
   }
 };
@@ -122,8 +135,10 @@ export const action = async ({ request }) => {
         .getAll("productIds")
         .map((value) => String(value || "").trim())
         .filter(Boolean);
-      const mode = String(formData.get("mode") || "").trim().toLowerCase();
-      const language = String(formData.get("language") || "").trim();
+      let mode = String(formData.get("mode") || "").trim().toLowerCase();
+      let language = String(formData.get("language") || "").trim();
+      let presetInstructions = String(formData.get("presetInstructions") || "").trim();
+      const presetId = String(formData.get("presetId") || "").trim();
 
       if (!selectedProductIds.length) {
         return {
@@ -131,6 +146,24 @@ export const action = async ({ request }) => {
           intent,
           message: "Select at least one product from the audit list.",
         };
+      }
+
+      if (presetId) {
+        const presetsPayload = await backendRequest({
+          backend,
+          pathname: "/content-presets",
+          method: "GET",
+          clientId,
+        });
+        const selectedPreset = (presetsPayload.presets || []).find(
+          (preset) => String(preset.id) === presetId,
+        );
+
+        if (selectedPreset) {
+          mode = selectedPreset.mode;
+          language = selectedPreset.language;
+          presetInstructions = selectedPreset.instructions || "";
+        }
       }
 
       const products = await getProductsByIds(admin, selectedProductIds);
@@ -149,6 +182,7 @@ export const action = async ({ request }) => {
               mode,
               language,
               existingDescription: stripHtml(product.descriptionHtml || ""),
+              presetInstructions,
             },
           });
 
@@ -169,6 +203,57 @@ export const action = async ({ request }) => {
           failedTitles.length === 0
             ? `Updated ${successCount} product${successCount === 1 ? "" : "s"} successfully.`
             : `Updated ${successCount} product${successCount === 1 ? "" : "s"}. Failed: ${failedTitles.join(", ")}.`,
+      };
+    }
+
+    if (intent === "save-preset") {
+      const name = String(formData.get("presetName") || "").trim();
+      const mode = String(formData.get("presetMode") || "").trim().toLowerCase();
+      const language = String(formData.get("presetLanguage") || "").trim();
+      const instructions = String(formData.get("presetInstructions") || "").trim();
+
+      const result = await backendRequest({
+        backend,
+        pathname: "/content-presets",
+        method: "POST",
+        body: {
+          clientId,
+          name,
+          mode,
+          language,
+          instructions,
+        },
+      });
+
+      return {
+        ok: true,
+        intent,
+        message: result.message || "Preset saved successfully.",
+      };
+    }
+
+    if (intent === "delete-preset") {
+      const presetId = String(formData.get("presetId") || "").trim();
+
+      if (!presetId) {
+        return {
+          ok: false,
+          intent,
+          message: "Preset id is required.",
+        };
+      }
+
+      const result = await backendRequest({
+        backend,
+        pathname: `/content-presets/${presetId}/delete`,
+        method: "POST",
+        body: { clientId },
+      });
+
+      return {
+        ok: true,
+        intent,
+        message: result.message || "Preset deleted successfully.",
       };
     }
 
@@ -236,6 +321,8 @@ export default function AppIndex() {
     [data.plans],
   );
   const currentPlanName = data.shopStatus?.plan?.name || "";
+  const presets = data.presets || [];
+  const auditFilters = data.auditFilters || emptyAuditFilters;
   const defaultRequestedPlanName =
     paidPlans.find((plan) => plan.name !== currentPlanName)?.name ||
     paidPlans[0]?.name ||
@@ -279,6 +366,96 @@ export default function AppIndex() {
         </s-stack>
       </s-section>
 
+      <s-section heading="Saved presets">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            Save reusable generation recipes for tone, language, and special instructions so your team can apply them across the catalog quickly.
+          </s-paragraph>
+        </s-stack>
+
+        <Form method="post" action="?index">
+          <input type="hidden" name="intent" value="save-preset" />
+          <div style={presetFormGridStyle}>
+            <div>
+              <label htmlFor="presetName">Preset name</label>
+              <input
+                id="presetName"
+                name="presetName"
+                type="text"
+                placeholder="Luxury sneakers in Arabic"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label htmlFor="presetMode">Mode</label>
+              <select id="presetMode" name="presetMode" style={inputStyle} defaultValue="conversion">
+                <option value="conversion">Conversion-focused</option>
+                <option value="luxury">Luxury</option>
+                <option value="seo">SEO-friendly</option>
+                <option value="technical">Technical</option>
+                <option value="benefits">Benefits-first</option>
+                <option value="mobile">Mobile-friendly</option>
+                <option value="rewrite">Rewrite current copy</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="presetLanguage">Language</label>
+              <select id="presetLanguage" name="presetLanguage" style={inputStyle} defaultValue="English">
+                <option value="English">English</option>
+                <option value="Arabic">Arabic</option>
+                <option value="French">French</option>
+              </select>
+            </div>
+          </div>
+
+          <label htmlFor="presetInstructions">Extra instructions</label>
+          <textarea
+            id="presetInstructions"
+            name="presetInstructions"
+            rows="4"
+            placeholder="Example: Keep a refined premium tone, mention craftsmanship, and avoid playful language."
+            style={inputStyle}
+          />
+
+          <s-button type="submit" variant="secondary">Save preset</s-button>
+        </Form>
+
+        {actionData?.message && actionData.intent === "save-preset" && (
+          <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+        )}
+
+        {presets.length ? (
+          <div style={presetListStyle}>
+            {presets.map((preset) => (
+              <div key={preset.id} style={presetCardStyle}>
+                <div style={presetCardHeaderStyle}>
+                  <strong>{preset.name}</strong>
+                  <span style={presetTagStyle}>
+                    {capitalizePlanName(preset.mode)} | {preset.language}
+                  </span>
+                </div>
+                <p style={presetDescriptionTextStyle}>
+                  {preset.instructions || "No extra instructions for this preset."}
+                </p>
+                <Form method="post" action="?index">
+                  <input type="hidden" name="intent" value="delete-preset" />
+                  <input type="hidden" name="presetId" value={preset.id} />
+                  <s-button type="submit" variant="secondary">Delete preset</s-button>
+                </Form>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={getNoticeStyle(false)}>
+            No presets saved yet. Create one to reuse your favorite generation setup.
+          </div>
+        )}
+
+        {actionData?.message && actionData.intent === "delete-preset" && (
+          <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+        )}
+      </s-section>
+
       <s-section heading="Catalog audit">
         <s-stack direction="block" gap="base">
           <s-paragraph>
@@ -291,6 +468,69 @@ export default function AppIndex() {
           </s-paragraph>
         </s-stack>
 
+        <Form method="get">
+          <div style={auditFilterGridStyle}>
+            <div>
+              <label htmlFor="q">Search</label>
+              <input
+                id="q"
+                name="q"
+                type="text"
+                placeholder="Search by product title"
+                defaultValue={auditFilters.q}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label htmlFor="issueType">Issue type</label>
+              <select
+                id="issueType"
+                name="issueType"
+                style={inputStyle}
+                defaultValue={auditFilters.issueType}
+              >
+                <option value="">All issues</option>
+                <option value="description">Description</option>
+                <option value="seo-title">SEO title</option>
+                <option value="seo-description">SEO description</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="vendor">Vendor</label>
+              <select
+                id="vendor"
+                name="vendor"
+                style={inputStyle}
+                defaultValue={auditFilters.vendor}
+              >
+                <option value="">All vendors</option>
+                {(data.audit?.availableVendors || []).map((vendor) => (
+                  <option key={vendor} value={vendor}>
+                    {vendor}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="productType">Product type</label>
+              <select
+                id="productType"
+                name="productType"
+                style={inputStyle}
+                defaultValue={auditFilters.productType}
+              >
+                <option value="">All product types</option>
+                {(data.audit?.availableProductTypes || []).map((productType) => (
+                  <option key={productType} value={productType}>
+                    {productType}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <s-button type="submit" variant="secondary">Apply filters</s-button>
+        </Form>
+
         <Form method="post" action="?index">
           <input type="hidden" name="intent" value="bulk-generate-audit" />
           <s-stack direction="block" gap="base">
@@ -301,6 +541,17 @@ export default function AppIndex() {
             )}
 
             <div style={bulkControlsStyle}>
+              <div>
+                <label htmlFor="presetId">Saved preset</label>
+                <select id="presetId" name="presetId" style={inputStyle} defaultValue="">
+                  <option value="">No preset</option>
+                  {presets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label htmlFor="mode">Rewrite mode</label>
                 <select id="mode" name="mode" style={inputStyle} defaultValue="conversion">
@@ -322,6 +573,15 @@ export default function AppIndex() {
                 </select>
               </div>
             </div>
+
+            <label htmlFor="bulkPresetInstructions">Extra instructions</label>
+            <textarea
+              id="bulkPresetInstructions"
+              name="presetInstructions"
+              rows="4"
+              placeholder="Optional extra guidance for this bulk run"
+              style={inputStyle}
+            />
 
             {auditItems.length ? (
               <div style={auditListStyle}>
@@ -651,6 +911,54 @@ const bulkControlsStyle = {
   gap: "12px",
 };
 
+const presetFormGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "12px",
+  marginBottom: "12px",
+};
+
+const presetListStyle = {
+  display: "grid",
+  gap: "12px",
+  marginTop: "16px",
+};
+
+const presetCardStyle = {
+  display: "grid",
+  gap: "8px",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+};
+
+const presetCardHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "10px",
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const presetTagStyle = {
+  color: "#4338ca",
+  fontWeight: 600,
+};
+
+const presetDescriptionTextStyle = {
+  margin: 0,
+  color: "#4b5563",
+  lineHeight: 1.5,
+};
+
+const auditFilterGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "12px",
+  marginBottom: "12px",
+};
+
 const auditListStyle = {
   display: "grid",
   gap: "12px",
@@ -715,7 +1023,7 @@ function capitalizePlanName(value) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-async function getCatalogAudit(admin) {
+async function getCatalogAudit(admin, filters) {
   const response = await admin.graphql(
     `#graphql
       query AuditProducts {
@@ -723,6 +1031,8 @@ async function getCatalogAudit(admin) {
           nodes {
             id
             title
+            productType
+            vendor
             descriptionHtml
             seo {
               title
@@ -735,10 +1045,17 @@ async function getCatalogAudit(admin) {
   );
   const payload = await response.json();
   const products = payload?.data?.products?.nodes || [];
+  const availableVendors = Array.from(
+    new Set(products.map((product) => product.vendor).filter(Boolean)),
+  ).sort();
+  const availableProductTypes = Array.from(
+    new Set(products.map((product) => product.productType).filter(Boolean)),
+  ).sort();
   const items = products
     .map((product) => {
       const descriptionText = stripHtml(product.descriptionHtml || "");
       const issues = [];
+      const issueTypes = [];
 
       if (descriptionText.length < 120) {
         issues.push(
@@ -746,27 +1063,55 @@ async function getCatalogAudit(admin) {
             ? "Description is too short for strong selling copy."
             : "Description is missing.",
         );
+        issueTypes.push("description");
       }
 
       if (!product.seo?.title) {
         issues.push("SEO title is missing.");
+        issueTypes.push("seo-title");
       }
 
       if (!product.seo?.description) {
         issues.push("SEO description is missing.");
+        issueTypes.push("seo-description");
       }
 
       return {
         id: product.id,
         title: product.title,
+        productType: product.productType || "",
+        vendor: product.vendor || "",
         issueSummary: issues.join(" "),
         currentDescriptionPreview: descriptionText
           ? `${descriptionText.slice(0, 180)}${descriptionText.length > 180 ? "..." : ""}`
           : "No description yet.",
         seoTitle: product.seo?.title || "",
         seoDescription: product.seo?.description || "",
+        issueTypes,
         issueCount: issues.length,
       };
+    })
+    .filter((item) => {
+      if (filters.q) {
+        const haystack = `${item.title} ${item.vendor} ${item.productType}`.toLowerCase();
+        if (!haystack.includes(filters.q.toLowerCase())) {
+          return false;
+        }
+      }
+
+      if (filters.issueType && !item.issueTypes.includes(filters.issueType)) {
+        return false;
+      }
+
+      if (filters.vendor && item.vendor !== filters.vendor) {
+        return false;
+      }
+
+      if (filters.productType && item.productType !== filters.productType) {
+        return false;
+      }
+
+      return true;
     })
     .filter((item) => item.issueCount > 0);
 
@@ -774,6 +1119,18 @@ async function getCatalogAudit(admin) {
     totalCount: products.length,
     flaggedCount: items.length,
     items,
+    availableVendors,
+    availableProductTypes,
+  };
+}
+
+function getAuditFiltersFromRequest(request) {
+  const url = new URL(request.url);
+  return {
+    q: String(url.searchParams.get("q") || "").trim(),
+    issueType: String(url.searchParams.get("issueType") || "").trim(),
+    vendor: String(url.searchParams.get("vendor") || "").trim(),
+    productType: String(url.searchParams.get("productType") || "").trim(),
   };
 }
 
@@ -860,6 +1217,13 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+const emptyAuditFilters = {
+  q: "",
+  issueType: "",
+  vendor: "",
+  productType: "",
+};
 
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);

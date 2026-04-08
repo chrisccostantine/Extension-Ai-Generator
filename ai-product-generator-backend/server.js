@@ -48,6 +48,7 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 const usageByClientAndMonth = new Map();
+const contentPresetsByClient = new Map();
 const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
@@ -243,6 +244,77 @@ app.post("/shop-profile", async (req, res) => {
   }
 });
 
+app.get("/content-presets", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.query.clientId);
+    const shop = await ensureShop(clientId);
+    const presets = await listContentPresetsForShop(shop.id, clientId);
+
+    return res.json({ presets });
+  } catch (error) {
+    console.error("Failed to load content presets:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load content presets.",
+    });
+  }
+});
+
+app.post("/content-presets", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const shop = await ensureShop(clientId);
+    const preset = await createContentPresetForShop(shop.id, clientId, {
+      name: sanitizeText(req.body?.name, 80),
+      mode: normalizeGenerationMode(req.body?.mode),
+      language: normalizeGenerationLanguage(req.body?.language),
+      instructions: sanitizeText(req.body?.instructions, 1000),
+    });
+
+    return res.status(201).json({
+      message: "Preset saved successfully.",
+      preset,
+    });
+  } catch (error) {
+    console.error("Failed to save content preset:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to save the content preset.",
+    });
+  }
+});
+
+app.post("/content-presets/:id/delete", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const shop = await ensureShop(clientId);
+    const presetId = Number(req.params.id);
+
+    if (!Number.isInteger(presetId) || presetId <= 0) {
+      return res.status(400).json({ error: "Invalid preset id." });
+    }
+
+    await deleteContentPresetForShop(shop.id, clientId, presetId);
+
+    return res.json({ message: "Preset deleted successfully." });
+  } catch (error) {
+    console.error("Failed to delete content preset:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to delete the content preset.",
+    });
+  }
+});
+
 app.post("/plan-requests", async (req, res) => {
   if (!isAuthorized(req)) {
     return res.status(401).json({
@@ -347,6 +419,7 @@ app.post("/generate-product-content", async (req, res) => {
   const generationMode = normalizeGenerationMode(req.body?.mode);
   const requestedLanguage = normalizeGenerationLanguage(req.body?.language);
   const existingDescription = sanitizeText(req.body?.existingDescription, 5000);
+  const presetInstructions = sanitizeText(req.body?.presetInstructions, 1000);
 
   if (!title) {
     return res.status(400).json({ error: "Title is required" });
@@ -404,6 +477,7 @@ app.post("/generate-product-content", async (req, res) => {
               text: buildGenerationSystemPrompt({
                 generationMode,
                 requestedLanguage,
+                presetInstructions,
               }),
             },
           ],
@@ -420,6 +494,7 @@ app.post("/generate-product-content", async (req, res) => {
                 generationMode,
                 requestedLanguage,
                 existingDescription,
+                presetInstructions,
               }),
             },
           ],
@@ -682,7 +757,11 @@ function normalizeGenerationLanguage(value) {
   return normalized || "English";
 }
 
-function buildGenerationSystemPrompt({ generationMode, requestedLanguage }) {
+function buildGenerationSystemPrompt({
+  generationMode,
+  requestedLanguage,
+  presetInstructions,
+}) {
   const modeInstructions = {
     conversion:
       "Prioritize clarity, shopper confidence, and conversion-focused benefits.",
@@ -714,6 +793,9 @@ function buildGenerationSystemPrompt({ generationMode, requestedLanguage }) {
     "metaDescription must stay under 155 characters when possible.",
     "subtitle must be a short merchandising line.",
     "faq must be an array of exactly 3 objects with question and answer keys.",
+    presetInstructions
+      ? `Additional preset instructions: ${presetInstructions}`
+      : "",
   ].join(" ");
 }
 
@@ -724,6 +806,7 @@ function buildGenerationUserPrompt({
   generationMode,
   requestedLanguage,
   existingDescription,
+  presetInstructions,
 }) {
   return [
     `Product title: ${title}`,
@@ -736,6 +819,9 @@ function buildGenerationUserPrompt({
     `- Target audience: ${profile.target_audience || "broad online shoppers"}`,
     `- Description style: ${profile.description_style || "benefits-first"}`,
     `- Brand guidelines: ${profile.brand_guidelines || "Keep it clean, polished, customer-facing, and specific to the product."}`,
+    presetInstructions
+      ? `Saved preset instructions: ${presetInstructions}`
+      : "Saved preset instructions:\nNone provided.",
     existingDescription ? `Existing product copy to improve:\n${existingDescription}` : "Existing product copy to improve:\nNone provided.",
     "Create a full content package for this product including description, highlights, composition, SEO metadata, subtitle, and FAQ.",
   ].join("\n");
@@ -988,6 +1074,21 @@ async function initializeDatabase() {
       sql: `
         ALTER TABLE plans
         ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''
+      `,
+    },
+    {
+      version: "007_content_presets",
+      sql: `
+        CREATE TABLE IF NOT EXISTS content_presets (
+          id SERIAL PRIMARY KEY,
+          shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          mode TEXT NOT NULL DEFAULT 'conversion',
+          language TEXT NOT NULL DEFAULT 'English',
+          instructions TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
       `,
     },
   ];
@@ -1449,6 +1550,92 @@ async function upsertShopProfile(shopId, profile) {
   );
 
   return result.rows[0];
+}
+
+async function listContentPresetsForShop(shopId, clientId) {
+  if (!pool) {
+    return contentPresetsByClient.get(clientId) || [];
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id, name, mode, language, instructions, created_at, updated_at
+      FROM content_presets
+      WHERE shop_id = $1
+      ORDER BY updated_at DESC, id DESC
+    `,
+    [shopId],
+  );
+
+  return result.rows;
+}
+
+async function createContentPresetForShop(shopId, clientId, preset) {
+  if (!preset.name) {
+    throw new Error("Preset name is required.");
+  }
+
+  if (!pool) {
+    const existing = contentPresetsByClient.get(clientId) || [];
+    const nextPreset = {
+      id: existing.length + 1,
+      name: preset.name,
+      mode: preset.mode,
+      language: preset.language,
+      instructions: preset.instructions,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    contentPresetsByClient.set(clientId, [nextPreset, ...existing]);
+    return nextPreset;
+  }
+
+  const result = await pool.query(
+    `
+      INSERT INTO content_presets (
+        shop_id,
+        name,
+        mode,
+        language,
+        instructions
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, name, mode, language, instructions, created_at, updated_at
+    `,
+    [
+      shopId,
+      preset.name,
+      preset.mode,
+      preset.language,
+      preset.instructions,
+    ],
+  );
+
+  return result.rows[0];
+}
+
+async function deleteContentPresetForShop(shopId, clientId, presetId) {
+  if (!pool) {
+    const existing = contentPresetsByClient.get(clientId) || [];
+    contentPresetsByClient.set(
+      clientId,
+      existing.filter((preset) => preset.id !== presetId),
+    );
+    return;
+  }
+
+  const result = await pool.query(
+    `
+      DELETE FROM content_presets
+      WHERE id = $1 AND shop_id = $2
+      RETURNING id
+    `,
+    [presetId, shopId],
+  );
+
+  if (!result.rows[0]) {
+    throw new Error("Preset not found.");
+  }
 }
 
 async function getPendingPlanRequestForShop(shopId, requestedPlanId) {
