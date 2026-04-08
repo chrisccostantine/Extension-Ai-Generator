@@ -79,10 +79,15 @@ app.use(
 app.use(express.json({ limit: "3mb" }));
 app.use(
   "/admin/assets",
-  express.static(path.join(__dirname, "admin-panel")),
+  express.static(path.join(__dirname, "admin-panel"), {
+    setHeaders(res) {
+      res.setHeader("Cache-Control", "no-store");
+    },
+  }),
 );
 
 app.get("/admin", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(__dirname, "admin-panel", "admin.html"));
 });
 
