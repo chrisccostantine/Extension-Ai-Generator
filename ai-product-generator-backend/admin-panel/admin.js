@@ -99,7 +99,7 @@ async function loadDashboard() {
         "x-admin-token": token,
       },
     });
-    const data = await response.json();
+    const data = await parseApiResponse(response);
 
     if (!response.ok) {
       throw new Error(data.error || "Could not load the admin dashboard.");
@@ -134,7 +134,7 @@ async function loadRequests() {
         "x-admin-token": token,
       },
     });
-    const data = await response.json();
+    const data = await parseApiResponse(response);
 
     if (!response.ok) {
       throw new Error(data.error || "Could not load plan requests.");
@@ -230,7 +230,7 @@ async function handleRequestAction(action, requestId, adminNotes) {
       },
       body: JSON.stringify({ adminNotes }),
     });
-    const data = await response.json();
+    const data = await parseApiResponse(response);
 
     if (!response.ok) {
       throw new Error(data.error || "Request update failed.");
@@ -245,6 +245,23 @@ async function handleRequestAction(action, requestId, adminNotes) {
 
 function setStatus(message) {
   statusElement.textContent = message;
+}
+
+async function parseApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  const preview = text.slice(0, 200).trim();
+
+  return {
+    error: preview
+      ? `Expected JSON but received ${contentType || "non-JSON response"}: ${preview}`
+      : `Expected JSON but received ${contentType || "non-JSON response"}.`,
+  };
 }
 
 function formatDate(value) {
