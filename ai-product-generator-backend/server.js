@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
+const { Pool } = require("pg");
 
 const app = express();
 const port = Number(process.env.PORT) || 5000;
@@ -19,10 +20,23 @@ const allowedOrigins = (
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const databaseUrl = process.env.DATABASE_URL || "";
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 const usageByClientAndMonth = new Map();
+const pool = databaseUrl
+  ? new Pool({
+      connectionString: databaseUrl,
+      ssl: databaseUrl.includes("localhost")
+        ? false
+        : { rejectUnauthorized: false },
+    })
+  : null;
+
+initializeDatabase().catch((error) => {
+  console.error("Failed to initialize database:", error);
+});
 
 app.use(
   cors({
@@ -57,16 +71,17 @@ app.get("/health", (_req, res) => {
     allowedOrigins,
     authEnabled: Boolean(requiredAccessToken),
     monthlyGenerationLimit,
+    databaseEnabled: Boolean(pool),
   });
 });
 
-app.get("/usage", (req, res) => {
+app.get("/usage", async (req, res) => {
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
   const clientId = normalizeClientId(req.query.clientId);
-  const usage = getUsageForClient(clientId);
+  const usage = await getUsageForClient(clientId);
 
   return res.json({
     clientId,
@@ -81,7 +96,7 @@ app.post("/generate-product-content", async (req, res) => {
   const title =
     typeof req.body?.title === "string" ? req.body.title.trim() : "";
   const clientId = normalizeClientId(req.body?.clientId);
-  const usage = getUsageForClient(clientId);
+  const usage = await getUsageForClient(clientId);
 
   if (!title) {
     return res.status(400).json({ error: "Title is required" });
@@ -165,16 +180,16 @@ app.post("/generate-product-content", async (req, res) => {
 
     const rawOutput = response.output_text;
     const parsedOutput = JSON.parse(rawOutput);
-    incrementUsage(clientId);
+    const updatedUsage = await incrementUsage(clientId);
 
     return res.json({
       description: parsedOutput.description,
       highlights: parsedOutput.highlights,
       composition: parsedOutput.composition,
       usage: {
-        count: getUsageForClient(clientId).count,
+        count: updatedUsage.count,
         limit: monthlyGenerationLimit,
-        period: getUsageForClient(clientId).period,
+        period: updatedUsage.period,
       },
     });
   } catch (error) {
@@ -217,7 +232,24 @@ function getUsageKey(clientId) {
   return `${clientId}:${getCurrentUsagePeriod()}`;
 }
 
-function getUsageForClient(clientId) {
+async function getUsageForClient(clientId) {
+  if (pool) {
+    const period = getCurrentUsagePeriod();
+    const result = await pool.query(
+      `
+        SELECT usage_count
+        FROM client_usage
+        WHERE client_id = $1 AND usage_period = $2
+      `,
+      [clientId, period],
+    );
+
+    return {
+      count: result.rows[0]?.usage_count || 0,
+      period,
+    };
+  }
+
   const period = getCurrentUsagePeriod();
   const key = getUsageKey(clientId);
   const existing = usageByClientAndMonth.get(key);
@@ -229,11 +261,55 @@ function getUsageForClient(clientId) {
   return { count: 0, period };
 }
 
-function incrementUsage(clientId) {
+async function incrementUsage(clientId) {
+  if (pool) {
+    const period = getCurrentUsagePeriod();
+    const result = await pool.query(
+      `
+        INSERT INTO client_usage (client_id, usage_period, usage_count)
+        VALUES ($1, $2, 1)
+        ON CONFLICT (client_id, usage_period)
+        DO UPDATE SET
+          usage_count = client_usage.usage_count + 1,
+          updated_at = NOW()
+        RETURNING usage_count
+      `,
+      [clientId, period],
+    );
+
+    return {
+      count: result.rows[0]?.usage_count || 1,
+      period,
+    };
+  }
+
   const key = getUsageKey(clientId);
   const existing = usageByClientAndMonth.get(key);
+  const nextCount = existing ? existing.count + 1 : 1;
 
   usageByClientAndMonth.set(key, {
-    count: existing ? existing.count + 1 : 1,
+    count: nextCount,
   });
+
+  return {
+    count: nextCount,
+    period: getCurrentUsagePeriod(),
+  };
+}
+
+async function initializeDatabase() {
+  if (!pool) {
+    return;
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_usage (
+      client_id TEXT NOT NULL,
+      usage_period TEXT NOT NULL,
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (client_id, usage_period)
+    )
+  `);
 }
