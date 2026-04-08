@@ -1,0 +1,10 @@
+{
+  "name": "Generate description",
+  "title": "AI Product Description",
+  "currentProduct": "Current product:",
+  "loadingProduct": "Loading the selected product...",
+  "description": "Generate and save a polished product description directly from this Shopify product page.",
+  "generate": "Generate and save",
+  "generating": "Generating...",
+  "close": "Close"
+}

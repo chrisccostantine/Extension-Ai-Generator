@@ -1,0 +1,10 @@
+{
+  "name": "Générer la description",
+  "title": "Description produit IA",
+  "currentProduct": "Produit actuel :",
+  "loadingProduct": "Chargement du produit sélectionné...",
+  "description": "Générez et enregistrez une description produit directement depuis cette page produit Shopify.",
+  "generate": "Générer et enregistrer",
+  "generating": "Génération...",
+  "close": "Fermer"
+}
