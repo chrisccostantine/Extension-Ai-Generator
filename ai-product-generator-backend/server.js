@@ -988,12 +988,6 @@ async function seedPlans() {
         'For active catalogs and small teams managing frequent launches.',
         3000,
         4900
-      ),
-      (
-        'agency',
-        'For agencies and high-volume operators managing many products across clients.',
-        10000,
-        9900
       )
     ON CONFLICT (name) DO UPDATE SET
       description = EXCLUDED.description,
@@ -1001,6 +995,12 @@ async function seedPlans() {
       price_cents = EXCLUDED.price_cents,
       is_active = TRUE,
       updated_at = NOW()
+  `);
+
+  await pool.query(`
+    UPDATE plans
+    SET is_active = FALSE, updated_at = NOW()
+    WHERE name = 'agency'
   `);
 }
 
