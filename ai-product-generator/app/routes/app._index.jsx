@@ -558,11 +558,11 @@ export default function AppIndex() {
                 ))}
               </select>
             </div>
-            <div>
-              <label htmlFor="productType">Product type</label>
-              <select
-                id="productType"
-                name="productType"
+              <div>
+                <label htmlFor="productType">Product type</label>
+                <select
+                  id="productType"
+                  name="productType"
                 style={inputStyle}
                 defaultValue={auditFilters.productType}
               >
@@ -570,6 +570,22 @@ export default function AppIndex() {
                 {(data.audit?.availableProductTypes || []).map((productType) => (
                   <option key={productType} value={productType}>
                     {productType}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="collectionId">Collection</label>
+              <select
+                id="collectionId"
+                name="collectionId"
+                style={inputStyle}
+                defaultValue={auditFilters.collectionId}
+              >
+                <option value="">All collections</option>
+                {(data.audit?.availableCollections || []).map((collection) => (
+                  <option key={collection.id} value={collection.id}>
+                    {collection.title}
                   </option>
                 ))}
               </select>
@@ -645,6 +661,9 @@ export default function AppIndex() {
                     <p style={auditMetaStyle}>
                       SEO title: {item.seoTitle || "Missing"} | SEO description:{" "}
                       {item.seoDescription || "Missing"}
+                    </p>
+                    <p style={auditMetaStyle}>
+                      Collections: {item.collectionTitles.length ? item.collectionTitles.join(", ") : "No collections"}
                     </p>
                   </label>
                 ))}
@@ -724,10 +743,49 @@ export default function AppIndex() {
                       <div style={previewPanelStyle}>
                         <strong>Before</strong>
                         <p style={previewTextStyle}>{preview.beforeDescription}</p>
+                        <p style={previewMetaStyle}>
+                          SEO title: {preview.beforeSeoTitle || "Missing"}
+                        </p>
+                        <p style={previewMetaStyle}>
+                          SEO description: {preview.beforeSeoDescription || "Missing"}
+                        </p>
                       </div>
                       <div style={previewPanelStyle}>
                         <strong>After</strong>
+                        <p style={previewMetaHeadlineStyle}>
+                          {preview.generated.subtitle || "No subtitle generated"}
+                        </p>
                         <p style={previewTextStyle}>{preview.generated.description}</p>
+                        <div style={previewListBlockStyle}>
+                          <strong>Highlights</strong>
+                          <ul style={previewBulletListStyle}>
+                            {(preview.generated.highlights || []).map((item) => (
+                              <li key={`${preview.productId}-${item}`}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div style={previewListBlockStyle}>
+                          <strong>Composition</strong>
+                          <ul style={previewBulletListStyle}>
+                            {(preview.generated.composition || []).map((item) => (
+                              <li key={`${preview.productId}-composition-${item}`}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div style={previewListBlockStyle}>
+                          <strong>FAQ</strong>
+                          <div style={previewFaqListStyle}>
+                            {(preview.generated.faq || []).map((item) => (
+                              <div
+                                key={`${preview.productId}-faq-${item.question}`}
+                                style={previewFaqItemStyle}
+                              >
+                                <strong>{item.question}</strong>
+                                <p style={previewMetaStyle}>{item.answer}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                         <p style={previewMetaStyle}>
                           SEO title: {preview.generated.metaTitle}
                         </p>
@@ -1128,10 +1186,39 @@ const previewTextStyle = {
   lineHeight: 1.6,
 };
 
+const previewMetaHeadlineStyle = {
+  margin: 0,
+  color: "#111827",
+  fontWeight: 600,
+  lineHeight: 1.5,
+};
+
 const previewMetaStyle = {
   margin: 0,
   color: "#4b5563",
   lineHeight: 1.5,
+};
+
+const previewListBlockStyle = {
+  display: "grid",
+  gap: "6px",
+};
+
+const previewBulletListStyle = {
+  margin: 0,
+  paddingLeft: "18px",
+  color: "#111827",
+  lineHeight: 1.5,
+};
+
+const previewFaqListStyle = {
+  display: "grid",
+  gap: "8px",
+};
+
+const previewFaqItemStyle = {
+  display: "grid",
+  gap: "4px",
 };
 
 const auditListStyle = {
@@ -1209,6 +1296,12 @@ async function getCatalogAudit(admin, filters) {
             productType
             vendor
             descriptionHtml
+            collections(first: 10) {
+              nodes {
+                id
+                title
+              }
+            }
             seo {
               title
               description
@@ -1226,11 +1319,20 @@ async function getCatalogAudit(admin, filters) {
   const availableProductTypes = Array.from(
     new Set(products.map((product) => product.productType).filter(Boolean)),
   ).sort();
+  const availableCollections = Array.from(
+    new Map(
+      products
+        .flatMap((product) => product.collections?.nodes || [])
+        .filter((collection) => collection?.id && collection?.title)
+        .map((collection) => [collection.id, { id: collection.id, title: collection.title }]),
+    ).values(),
+  ).sort((left, right) => left.title.localeCompare(right.title));
   const items = products
     .map((product) => {
       const descriptionText = stripHtml(product.descriptionHtml || "");
       const issues = [];
       const issueTypes = [];
+      const collections = product.collections?.nodes || [];
 
       if (descriptionText.length < 120) {
         issues.push(
@@ -1256,6 +1358,8 @@ async function getCatalogAudit(admin, filters) {
         title: product.title,
         productType: product.productType || "",
         vendor: product.vendor || "",
+        collectionIds: collections.map((collection) => collection.id),
+        collectionTitles: collections.map((collection) => collection.title).filter(Boolean),
         issueSummary: issues.join(" "),
         currentDescriptionPreview: descriptionText
           ? `${descriptionText.slice(0, 180)}${descriptionText.length > 180 ? "..." : ""}`
@@ -1286,6 +1390,13 @@ async function getCatalogAudit(admin, filters) {
         return false;
       }
 
+      if (
+        filters.collectionId &&
+        !item.collectionIds.includes(filters.collectionId)
+      ) {
+        return false;
+      }
+
       return true;
     })
     .filter((item) => item.issueCount > 0);
@@ -1296,6 +1407,7 @@ async function getCatalogAudit(admin, filters) {
     items,
     availableVendors,
     availableProductTypes,
+    availableCollections,
   };
 }
 
@@ -1306,6 +1418,7 @@ function getAuditFiltersFromRequest(request) {
     issueType: String(url.searchParams.get("issueType") || "").trim(),
     vendor: String(url.searchParams.get("vendor") || "").trim(),
     productType: String(url.searchParams.get("productType") || "").trim(),
+    collectionId: String(url.searchParams.get("collectionId") || "").trim(),
   };
 }
 
@@ -1318,6 +1431,10 @@ async function getProductsByIds(admin, ids) {
             id
             title
             descriptionHtml
+            seo {
+              title
+              description
+            }
           }
         }
       }
@@ -1385,6 +1502,8 @@ async function buildBulkGenerationInput({ admin, backend, clientId, formData }) 
       productId: product.id,
       title: product.title,
       beforeDescription: stripHtml(product.descriptionHtml || "") || "No description yet.",
+      beforeSeoTitle: product.seo?.title || "",
+      beforeSeoDescription: product.seo?.description || "",
       generated,
     });
   }
@@ -1465,6 +1584,7 @@ const emptyAuditFilters = {
   issueType: "",
   vendor: "",
   productType: "",
+  collectionId: "",
 };
 
 export const headers = (headersArgs) => {
