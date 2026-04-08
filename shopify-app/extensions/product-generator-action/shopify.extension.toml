@@ -1,0 +1,5 @@
+name = "product-generator-action"
+type = "admin_action"
+handle = "product-generator-action"
+
+description = "Launch AI product generation from the Shopify product details page."

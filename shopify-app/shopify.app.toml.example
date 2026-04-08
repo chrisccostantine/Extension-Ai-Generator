@@ -1,0 +1,22 @@
+client_id = "YOUR_SHOPIFY_API_KEY"
+name = "AI Product Generator"
+handle = "ai-product-generator"
+application_url = "https://your-app-domain.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "your-store.myshopify.com"
+
+[access_scopes]
+scopes = "read_products,write_products"
+
+[auth]
+redirect_urls = [
+  "https://your-app-domain.com/auth/callback",
+  "https://your-app-domain.com/auth/shopify/callback",
+  "https://your-app-domain.com/api/auth/callback"
+]
+
+[webhooks]
+api_version = "2026-01"
