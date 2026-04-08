@@ -367,64 +367,110 @@ async function initializeDatabase() {
   }
 
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS plans (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      monthly_generation_limit INTEGER NOT NULL,
-      price_cents INTEGER NOT NULL DEFAULT 0,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS shops (
-      id SERIAL PRIMARY KEY,
-      client_id TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+  const migrations = [
+    {
+      version: "001_initial_usage",
+      sql: `
+        CREATE TABLE IF NOT EXISTS client_usage (
+          client_id TEXT NOT NULL,
+          usage_period TEXT NOT NULL,
+          usage_count INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (client_id, usage_period)
+        )
+      `,
+    },
+    {
+      version: "002_saas_tables",
+      sql: `
+        CREATE TABLE IF NOT EXISTS plans (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          monthly_generation_limit INTEGER NOT NULL,
+          price_cents INTEGER NOT NULL DEFAULT 0,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS subscriptions (
-      id SERIAL PRIMARY KEY,
-      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-      plan_id INTEGER NOT NULL REFERENCES plans(id),
-      status TEXT NOT NULL DEFAULT 'active',
-      current_period_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      current_period_end TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (shop_id)
-    )
-  `);
+        CREATE TABLE IF NOT EXISTS shops (
+          id SERIAL PRIMARY KEY,
+          client_id TEXT NOT NULL UNIQUE,
+          display_name TEXT NOT NULL,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS client_usage (
-      shop_id INTEGER REFERENCES shops(id) ON DELETE CASCADE,
-      client_id TEXT NOT NULL,
-      usage_period TEXT NOT NULL,
-      usage_count INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (client_id, usage_period)
-    )
-  `);
+        CREATE TABLE IF NOT EXISTS subscriptions (
+          id SERIAL PRIMARY KEY,
+          shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+          plan_id INTEGER NOT NULL REFERENCES plans(id),
+          status TEXT NOT NULL DEFAULT 'active',
+          current_period_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          current_period_end TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (shop_id)
+        );
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS usage_events (
-      id SERIAL PRIMARY KEY,
-      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-      usage_period TEXT NOT NULL,
-      event_type TEXT NOT NULL DEFAULT 'generation',
-      product_title TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+        CREATE TABLE IF NOT EXISTS usage_events (
+          id SERIAL PRIMARY KEY,
+          shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+          usage_period TEXT NOT NULL,
+          event_type TEXT NOT NULL DEFAULT 'generation',
+          product_title TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `,
+    },
+    {
+      version: "003_client_usage_shop_id",
+      sql: `
+        ALTER TABLE client_usage
+        ADD COLUMN IF NOT EXISTS shop_id INTEGER REFERENCES shops(id) ON DELETE CASCADE
+      `,
+    },
+  ];
+
+  for (const migration of migrations) {
+    const alreadyApplied = await pool.query(
+      `
+        SELECT version
+        FROM schema_migrations
+        WHERE version = $1
+      `,
+      [migration.version],
+    );
+
+    if (alreadyApplied.rows[0]) {
+      continue;
+    }
+
+    await pool.query("BEGIN");
+
+    try {
+      await pool.query(migration.sql);
+      await pool.query(
+        `
+          INSERT INTO schema_migrations (version)
+          VALUES ($1)
+        `,
+        [migration.version],
+      );
+      await pool.query("COMMIT");
+    } catch (error) {
+      await pool.query("ROLLBACK");
+      throw error;
+    }
+  }
 
   await seedPlans();
 }
