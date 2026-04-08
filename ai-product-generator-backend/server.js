@@ -546,6 +546,20 @@ app.post("/admin/api/plan-requests/:id/reject", async (req, res) => {
   }
 });
 
+app.use((error, req, res, _next) => {
+  console.error("Unhandled server error:", error);
+
+  if (req.path.startsWith("/admin/api/")) {
+    return res.status(500).json({
+      error: error?.message || "Internal server error.",
+    });
+  }
+
+  return res.status(500).json({
+    error: error?.message || "Internal server error.",
+  });
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
@@ -1363,7 +1377,11 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
 
     await client.query("COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("Failed to rollback approvePlanRequest transaction:", rollbackError);
+    }
     throw error;
   } finally {
     client.release();
