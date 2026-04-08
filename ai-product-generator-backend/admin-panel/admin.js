@@ -184,8 +184,10 @@ function renderActions(requestId) {
   return `
     <div class="requestActions">
       <textarea id="notes-${requestId}" rows="3" placeholder="Optional admin note"></textarea>
-      <button type="button" data-action="approve" data-request-id="${requestId}">Approve</button>
-      <button type="button" class="reject" data-action="reject" data-request-id="${requestId}">Reject</button>
+      <div class="requestButtons">
+        <button type="button" data-action="approve" data-request-id="${requestId}">Approve</button>
+        <button type="button" class="reject" data-action="reject" data-request-id="${requestId}">Reject</button>
+      </div>
     </div>
   `;
 }
