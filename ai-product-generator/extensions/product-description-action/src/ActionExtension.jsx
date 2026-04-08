@@ -99,6 +99,10 @@ function Extension() {
     }
   }
 
+  function handleClose() {
+    close();
+  }
+
   return (
     <s-admin-action>
       <s-stack direction="block" gap="base">
@@ -124,7 +128,7 @@ function Extension() {
       >
         {loading ? i18n.translate("generating") : i18n.translate("generate")}
       </s-button>
-      <s-button slot="secondary-actions" onClick={close}>
+      <s-button slot="secondary-actions" onClick={handleClose}>
         {i18n.translate("close")}
       </s-button>
     </s-admin-action>
