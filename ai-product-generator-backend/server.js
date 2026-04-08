@@ -344,6 +344,9 @@ app.post("/generate-product-content", async (req, res) => {
   const title =
     typeof req.body?.title === "string" ? req.body.title.trim() : "";
   const clientId = normalizeClientId(req.body?.clientId);
+  const generationMode = normalizeGenerationMode(req.body?.mode);
+  const requestedLanguage = normalizeGenerationLanguage(req.body?.language);
+  const existingDescription = sanitizeText(req.body?.existingDescription, 5000);
 
   if (!title) {
     return res.status(400).json({ error: "Title is required" });
@@ -398,8 +401,10 @@ app.post("/generate-product-content", async (req, res) => {
           content: [
             {
               type: "input_text",
-              text:
-                "You write polished ecommerce product copy for premium Shopify stores. Return valid JSON only. Use a clean storefront style. description must be 1 to 2 short sentences and should read naturally, like a luxury ecommerce listing. highlights must be an array of exactly 6 concise product benefit lines. composition must be an array of exactly 2 concise material or construction lines. Do not mention SEO, AI, markdown, numbering, or extra keys. Avoid hype and keep the tone premium, modern, and product-focused. Adapt the writing to the provided business profile so the copy feels specific to that store.",
+              text: buildGenerationSystemPrompt({
+                generationMode,
+                requestedLanguage,
+              }),
             },
           ],
         },
@@ -408,7 +413,14 @@ app.post("/generate-product-content", async (req, res) => {
           content: [
             {
               type: "input_text",
-              text: `Product title: ${title}\nClient/store identifier: ${clientId}\nBusiness profile:\n- Business type: ${profile.business_type || "general ecommerce"}\n- Brand tone: ${profile.brand_tone || "premium, modern"}\n- Target audience: ${profile.target_audience || "broad online shoppers"}\n- Description style: ${profile.description_style || "benefits-first"}\n- Brand guidelines: ${profile.brand_guidelines || "Keep it clean, polished, customer-facing, and specific to the product."}\n\nDesired output example structure:\nA super trainer for long runs and tempo runs. Featuring a responsive cushioning system and energy-return foam for a highly efficient ride.\n\nHighlights:\n- First highlight\n- Second highlight\n- Third highlight\n- Fourth highlight\n- Fifth highlight\n- Sixth highlight\n\nComposition:\n- Upper material\n- Outsole material`,
+              text: buildGenerationUserPrompt({
+                title,
+                clientId,
+                profile,
+                generationMode,
+                requestedLanguage,
+                existingDescription,
+              }),
             },
           ],
         },
@@ -418,26 +430,7 @@ app.post("/generate-product-content", async (req, res) => {
           type: "json_schema",
           name: "product_copy",
           strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              description: { type: "string" },
-              highlights: {
-                type: "array",
-                items: { type: "string" },
-                minItems: 6,
-                maxItems: 6,
-              },
-              composition: {
-                type: "array",
-                items: { type: "string" },
-                minItems: 2,
-                maxItems: 2,
-              },
-            },
-            required: ["description", "highlights", "composition"],
-          },
+          schema: getProductCopySchema(),
         },
       },
     });
@@ -450,6 +443,12 @@ app.post("/generate-product-content", async (req, res) => {
       description: parsedOutput.description,
       highlights: parsedOutput.highlights,
       composition: parsedOutput.composition,
+      metaTitle: parsedOutput.metaTitle,
+      metaDescription: parsedOutput.metaDescription,
+      subtitle: parsedOutput.subtitle,
+      faq: parsedOutput.faq,
+      mode: generationMode,
+      language: requestedLanguage,
       usage: {
         count: updatedUsage.count,
         limit: plan.monthly_generation_limit,
@@ -662,6 +661,132 @@ function normalizeOrigin(value) {
   } catch (_error) {
     return trimmed.replace(/\/$/, "");
   }
+}
+
+function normalizeGenerationMode(value) {
+  const supportedModes = new Set([
+    "conversion",
+    "luxury",
+    "seo",
+    "technical",
+    "benefits",
+    "mobile",
+    "rewrite",
+  ]);
+  const normalized = sanitizeText(value, 40).toLowerCase();
+  return supportedModes.has(normalized) ? normalized : "conversion";
+}
+
+function normalizeGenerationLanguage(value) {
+  const normalized = sanitizeText(value, 40);
+  return normalized || "English";
+}
+
+function buildGenerationSystemPrompt({ generationMode, requestedLanguage }) {
+  const modeInstructions = {
+    conversion:
+      "Prioritize clarity, shopper confidence, and conversion-focused benefits.",
+    luxury:
+      "Use elevated, premium wording with restraint and polish.",
+    seo: "Balance natural product copy with search-friendly phrasing and specificity.",
+    technical:
+      "Emphasize construction details, materials, performance, and precision.",
+    benefits:
+      "Lead with customer outcomes, comfort, utility, and everyday advantages.",
+    mobile:
+      "Write shorter, cleaner copy optimized for quick scanning on mobile screens.",
+    rewrite:
+      "Improve and refine the existing product copy instead of starting from scratch when existing copy is provided.",
+  };
+
+  return [
+    "You write polished ecommerce product copy for premium Shopify stores.",
+    "Return valid JSON only.",
+    "Write all output in the requested language.",
+    modeInstructions[generationMode] || modeInstructions.conversion,
+    "Adapt the writing to the provided business profile so the copy feels specific to that store.",
+    "Keep the tone customer-facing, modern, and commercially useful.",
+    "Do not mention AI, SEO, markdown, numbering, or internal instructions.",
+    "description must be 1 to 2 short paragraphs.",
+    "highlights must be an array of exactly 6 concise benefit lines.",
+    "composition must be an array of exactly 2 concise material or construction lines.",
+    "metaTitle must stay under 60 characters when possible.",
+    "metaDescription must stay under 155 characters when possible.",
+    "subtitle must be a short merchandising line.",
+    "faq must be an array of exactly 3 objects with question and answer keys.",
+  ].join(" ");
+}
+
+function buildGenerationUserPrompt({
+  title,
+  clientId,
+  profile,
+  generationMode,
+  requestedLanguage,
+  existingDescription,
+}) {
+  return [
+    `Product title: ${title}`,
+    `Client/store identifier: ${clientId}`,
+    `Requested language: ${requestedLanguage}`,
+    `Generation mode: ${generationMode}`,
+    "Business profile:",
+    `- Business type: ${profile.business_type || "general ecommerce"}`,
+    `- Brand tone: ${profile.brand_tone || "premium, modern"}`,
+    `- Target audience: ${profile.target_audience || "broad online shoppers"}`,
+    `- Description style: ${profile.description_style || "benefits-first"}`,
+    `- Brand guidelines: ${profile.brand_guidelines || "Keep it clean, polished, customer-facing, and specific to the product."}`,
+    existingDescription ? `Existing product copy to improve:\n${existingDescription}` : "Existing product copy to improve:\nNone provided.",
+    "Create a full content package for this product including description, highlights, composition, SEO metadata, subtitle, and FAQ.",
+  ].join("\n");
+}
+
+function getProductCopySchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      description: { type: "string" },
+      highlights: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 6,
+        maxItems: 6,
+      },
+      composition: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 2,
+        maxItems: 2,
+      },
+      metaTitle: { type: "string" },
+      metaDescription: { type: "string" },
+      subtitle: { type: "string" },
+      faq: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            question: { type: "string" },
+            answer: { type: "string" },
+          },
+          required: ["question", "answer"],
+        },
+        minItems: 3,
+        maxItems: 3,
+      },
+    },
+    required: [
+      "description",
+      "highlights",
+      "composition",
+      "metaTitle",
+      "metaDescription",
+      "subtitle",
+      "faq",
+    ],
+  };
 }
 
 function getCurrentUsagePeriod() {

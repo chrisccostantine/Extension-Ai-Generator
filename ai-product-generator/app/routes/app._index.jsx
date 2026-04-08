@@ -1,18 +1,19 @@
+/* global process */
 import { useMemo } from "react";
 import {
   Form,
   useActionData,
   useLoaderData,
-  useNavigation,
   useRevalidator,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
+  const audit = await getCatalogAudit(admin);
 
   if (!backend.baseUrl) {
     return {
@@ -23,6 +24,7 @@ export const loader = async ({ request }) => {
       plans: [],
       paymentInstructions: "",
       supportContact: "",
+      audit,
     };
   }
 
@@ -49,6 +51,7 @@ export const loader = async ({ request }) => {
       plans: plansPayload.plans || [],
       paymentInstructions: plansPayload.paymentInstructions || "",
       supportContact: plansPayload.supportContact || "",
+      audit,
     };
   } catch (error) {
     return {
@@ -60,12 +63,13 @@ export const loader = async ({ request }) => {
       plans: [],
       paymentInstructions: "",
       supportContact: "",
+      audit,
     };
   }
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
   const formData = await request.formData();
@@ -110,6 +114,61 @@ export const action = async ({ request }) => {
         ok: true,
         intent,
         message: result.message || "Shop profile saved successfully.",
+      };
+    }
+
+    if (intent === "bulk-generate-audit") {
+      const selectedProductIds = formData
+        .getAll("productIds")
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      const mode = String(formData.get("mode") || "").trim().toLowerCase();
+      const language = String(formData.get("language") || "").trim();
+
+      if (!selectedProductIds.length) {
+        return {
+          ok: false,
+          intent,
+          message: "Select at least one product from the audit list.",
+        };
+      }
+
+      const products = await getProductsByIds(admin, selectedProductIds);
+      let successCount = 0;
+      const failedTitles = [];
+
+      for (const product of products) {
+        try {
+          const generated = await backendRequest({
+            backend,
+            pathname: "/generate-product-content",
+            method: "POST",
+            body: {
+              clientId,
+              title: product.title,
+              mode,
+              language,
+              existingDescription: stripHtml(product.descriptionHtml || ""),
+            },
+          });
+
+          await updateShopifyProduct(admin, {
+            productId: product.id,
+            generated,
+          });
+          successCount += 1;
+        } catch (_error) {
+          failedTitles.push(product.title);
+        }
+      }
+
+      return {
+        ok: successCount > 0,
+        intent,
+        message:
+          failedTitles.length === 0
+            ? `Updated ${successCount} product${successCount === 1 ? "" : "s"} successfully.`
+            : `Updated ${successCount} product${successCount === 1 ? "" : "s"}. Failed: ${failedTitles.join(", ")}.`,
       };
     }
 
@@ -164,7 +223,6 @@ export const action = async ({ request }) => {
 export default function AppIndex() {
   const data = useLoaderData();
   const actionData = useActionData();
-  const navigation = useNavigation();
   const revalidator = useRevalidator();
   const profile = data.shopStatus?.profile || emptyProfile;
   const needsProfile =
@@ -182,6 +240,7 @@ export default function AppIndex() {
     paidPlans.find((plan) => plan.name !== currentPlanName)?.name ||
     paidPlans[0]?.name ||
     "";
+  const auditItems = data.audit?.items || [];
 
   return (
     <s-page heading="AI Product Generator">
@@ -218,6 +277,86 @@ export default function AppIndex() {
             </s-paragraph>
           )}
         </s-stack>
+      </s-section>
+
+      <s-section heading="Catalog audit">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            {data.audit
+              ? `${data.audit.flaggedCount} of ${data.audit.totalCount} recent products need content improvements.`
+              : "Audit data is not available right now."}
+          </s-paragraph>
+          <s-paragraph>
+            Review missing or weak descriptions, missing SEO content, and then generate improved copy in bulk.
+          </s-paragraph>
+        </s-stack>
+
+        <Form method="post" action="?index">
+          <input type="hidden" name="intent" value="bulk-generate-audit" />
+          <s-stack direction="block" gap="base">
+            {needsProfile && (
+              <div style={getNoticeStyle(false)}>
+                Save your business profile first so bulk generation matches your store voice.
+              </div>
+            )}
+
+            <div style={bulkControlsStyle}>
+              <div>
+                <label htmlFor="mode">Rewrite mode</label>
+                <select id="mode" name="mode" style={inputStyle} defaultValue="conversion">
+                  <option value="conversion">Conversion-focused</option>
+                  <option value="luxury">Luxury</option>
+                  <option value="seo">SEO-friendly</option>
+                  <option value="technical">Technical</option>
+                  <option value="benefits">Benefits-first</option>
+                  <option value="mobile">Mobile-friendly</option>
+                  <option value="rewrite">Rewrite current copy</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="language">Language</label>
+                <select id="language" name="language" style={inputStyle} defaultValue="English">
+                  <option value="English">English</option>
+                  <option value="Arabic">Arabic</option>
+                  <option value="French">French</option>
+                </select>
+              </div>
+            </div>
+
+            {auditItems.length ? (
+              <div style={auditListStyle}>
+                {auditItems.map((item) => (
+                  <label key={item.id} style={auditCardStyle}>
+                    <div style={auditCardHeaderStyle}>
+                      <input type="checkbox" name="productIds" value={item.id} defaultChecked />
+                      <strong>{item.title}</strong>
+                    </div>
+                    <p style={auditIssueStyle}>{item.issueSummary}</p>
+                    <p style={auditMetaStyle}>
+                      Current description: {item.currentDescriptionPreview}
+                    </p>
+                    <p style={auditMetaStyle}>
+                      SEO title: {item.seoTitle || "Missing"} | SEO description:{" "}
+                      {item.seoDescription || "Missing"}
+                    </p>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div style={getNoticeStyle(true)}>
+                Your recent catalog looks healthy. No weak or missing content was flagged.
+              </div>
+            )}
+
+            <s-button type="submit" variant="secondary" disabled={needsProfile || !auditItems.length}>
+              Generate and apply to selected products
+            </s-button>
+          </s-stack>
+        </Form>
+
+        {actionData?.message && actionData.intent === "bulk-generate-audit" && (
+          <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+        )}
       </s-section>
 
       <s-section
@@ -291,7 +430,7 @@ export default function AppIndex() {
         <Form method="post" action="?index">
           <input type="hidden" name="intent" value="request-plan" />
           <s-stack direction="block" gap="base">
-            <label>Choose plan</label>
+            <p style={sectionLabelStyle}>Choose plan</p>
             {paidPlans.length ? (
               <div style={planGridStyle}>
                 {paidPlans.map((plan) => {
@@ -506,6 +645,51 @@ const planCurrentBadgeStyle = {
   fontWeight: 600,
 };
 
+const bulkControlsStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "12px",
+};
+
+const auditListStyle = {
+  display: "grid",
+  gap: "12px",
+};
+
+const auditCardStyle = {
+  display: "grid",
+  gap: "8px",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+};
+
+const auditCardHeaderStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+};
+
+const auditIssueStyle = {
+  margin: 0,
+  color: "#9a3412",
+  fontWeight: 600,
+};
+
+const auditMetaStyle = {
+  margin: 0,
+  color: "#4b5563",
+  lineHeight: 1.5,
+};
+
+const sectionLabelStyle = {
+  margin: 0,
+  fontWeight: 600,
+  color: "#111827",
+};
+
 function getNoticeStyle(isSuccess) {
   return {
     marginTop: "12px",
@@ -529,6 +713,152 @@ function capitalizePlanName(value) {
   return String(value || "")
     .replace(/[-_]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+async function getCatalogAudit(admin) {
+  const response = await admin.graphql(
+    `#graphql
+      query AuditProducts {
+        products(first: 20, sortKey: UPDATED_AT, reverse: true) {
+          nodes {
+            id
+            title
+            descriptionHtml
+            seo {
+              title
+              description
+            }
+          }
+        }
+      }
+    `,
+  );
+  const payload = await response.json();
+  const products = payload?.data?.products?.nodes || [];
+  const items = products
+    .map((product) => {
+      const descriptionText = stripHtml(product.descriptionHtml || "");
+      const issues = [];
+
+      if (descriptionText.length < 120) {
+        issues.push(
+          descriptionText
+            ? "Description is too short for strong selling copy."
+            : "Description is missing.",
+        );
+      }
+
+      if (!product.seo?.title) {
+        issues.push("SEO title is missing.");
+      }
+
+      if (!product.seo?.description) {
+        issues.push("SEO description is missing.");
+      }
+
+      return {
+        id: product.id,
+        title: product.title,
+        issueSummary: issues.join(" "),
+        currentDescriptionPreview: descriptionText
+          ? `${descriptionText.slice(0, 180)}${descriptionText.length > 180 ? "..." : ""}`
+          : "No description yet.",
+        seoTitle: product.seo?.title || "",
+        seoDescription: product.seo?.description || "",
+        issueCount: issues.length,
+      };
+    })
+    .filter((item) => item.issueCount > 0);
+
+  return {
+    totalCount: products.length,
+    flaggedCount: items.length,
+    items,
+  };
+}
+
+async function getProductsByIds(admin, ids) {
+  const response = await admin.graphql(
+    `#graphql
+      query ProductsById($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Product {
+            id
+            title
+            descriptionHtml
+          }
+        }
+      }
+    `,
+    { variables: { ids } },
+  );
+  const payload = await response.json();
+  return (payload?.data?.nodes || []).filter(Boolean);
+}
+
+async function updateShopifyProduct(admin, { productId, generated }) {
+  const response = await admin.graphql(
+    `#graphql
+      mutation UpdateProductContent($product: ProductUpdateInput!) {
+        productUpdate(product: $product) {
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      variables: {
+        product: {
+          id: productId,
+          descriptionHtml: buildDescriptionHtml(generated),
+          seo: {
+            title: generated.metaTitle,
+            description: generated.metaDescription,
+          },
+        },
+      },
+    },
+  );
+  const payload = await response.json();
+  const userErrors = payload?.data?.productUpdate?.userErrors || [];
+
+  if (userErrors.length > 0) {
+    throw new Error(userErrors[0]?.message || "Shopify rejected the update.");
+  }
+}
+
+function buildDescriptionHtml(data) {
+  return [
+    `<p><strong>${escapeHtml(data.subtitle || "")}</strong></p>`,
+    `<p>${escapeHtml(data.description || "")}</p>`,
+    "<p><strong>Highlights:</strong></p>",
+    `<ul>${(data.highlights || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`,
+    "<p><strong>Composition:</strong></p>",
+    ...(data.composition || []).map((item) => `<p>${escapeHtml(item)}</p>`),
+    "<p><strong>FAQ:</strong></p>",
+    ...(data.faq || []).map(
+      (item) =>
+        `<p><strong>${escapeHtml(item.question || "")}</strong><br/>${escapeHtml(item.answer || "")}</p>`,
+    ),
+  ].join("");
+}
+
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 export const headers = (headersArgs) => {

@@ -1,3 +1,4 @@
+/* global process */
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
@@ -51,6 +52,7 @@ export const loader = async ({ request }) => {
       backend,
       title: product.title,
       clientId,
+      existingDescription: stripHtml(product.descriptionHtml || ""),
     });
     const descriptionHtml = buildDescriptionHtml(generated);
 
@@ -75,6 +77,10 @@ export const loader = async ({ request }) => {
           product: {
             id: productId,
             descriptionHtml,
+            seo: {
+              title: generated.metaTitle,
+              description: generated.metaDescription,
+            },
           },
         },
       },
@@ -100,6 +106,10 @@ export const loader = async ({ request }) => {
         description: generated.description,
         highlights: generated.highlights,
         composition: generated.composition,
+        metaTitle: generated.metaTitle,
+        metaDescription: generated.metaDescription,
+        subtitle: generated.subtitle,
+        faq: generated.faq,
       }),
     );
   } catch (error) {
@@ -128,7 +138,12 @@ function toClientId(shopDomain) {
   return `shopify-store:${handle}`;
 }
 
-async function fetchBackendGeneratedContent({ backend, title, clientId }) {
+async function fetchBackendGeneratedContent({
+  backend,
+  title,
+  clientId,
+  existingDescription,
+}) {
   const response = await fetch(`${backend.baseUrl}/generate-product-content`, {
     method: "POST",
     headers: {
@@ -137,7 +152,13 @@ async function fetchBackendGeneratedContent({ backend, title, clientId }) {
         ? { "x-extension-token": backend.extensionToken }
         : {}),
     },
-    body: JSON.stringify({ title, clientId }),
+    body: JSON.stringify({
+      title,
+      clientId,
+      mode: "rewrite",
+      language: "English",
+      existingDescription,
+    }),
   });
 
   const data = await response.json();
@@ -151,12 +172,25 @@ async function fetchBackendGeneratedContent({ backend, title, clientId }) {
 
 function buildDescriptionHtml(data) {
   return [
+    `<p><strong>${escapeHtml(data.subtitle || "")}</strong></p>`,
     `<p>${escapeHtml(data.description)}</p>`,
     "<p><strong>Highlights:</strong></p>",
     `<ul>${(data.highlights || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`,
     "<p><strong>Composition:</strong></p>",
     ...(data.composition || []).map((item) => `<p>${escapeHtml(item)}</p>`),
+    "<p><strong>FAQ:</strong></p>",
+    ...(data.faq || []).map(
+      (item) =>
+        `<p><strong>${escapeHtml(item.question || "")}</strong><br/>${escapeHtml(item.answer || "")}</p>`,
+    ),
   ].join("");
+}
+
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function escapeHtml(text) {
