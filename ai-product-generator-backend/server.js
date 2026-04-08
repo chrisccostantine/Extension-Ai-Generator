@@ -23,13 +23,26 @@ const defaultAllowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5000",
   "chrome-extension://*",
+  "https://admin.shopify.com",
+  "https://*.myshopify.com",
 ];
-const allowedOrigins = (
-  process.env.ALLOWED_ORIGINS || defaultAllowedOrigins.join(",")
-)
+const configuredAllowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const derivedAllowedOrigins = [
+  process.env.SHOPIFY_APP_URL,
+  process.env.SHOPIFY_ADMIN_URL,
+]
+  .map((origin) => normalizeOrigin(origin))
+  .filter(Boolean);
+const allowedOrigins = Array.from(
+  new Set([
+    ...defaultAllowedOrigins,
+    ...configuredAllowedOrigins,
+    ...derivedAllowedOrigins,
+  ]),
+);
 const databaseUrl = process.env.DATABASE_URL || "";
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -67,6 +80,12 @@ app.use(
 
         return origin === allowedOrigin;
       });
+
+      if (!isAllowed) {
+        console.warn(
+          `Rejected CORS origin: ${origin}. Allowed origins: ${allowedOrigins.join(", ")}`,
+        );
+      }
 
       callback(
         isAllowed ? null : new Error("Origin not allowed by CORS"),
@@ -617,6 +636,24 @@ function sanitizeProofDataUrl(value) {
   }
 
   return trimmed;
+}
+
+function normalizeOrigin(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    return new URL(trimmed).origin;
+  } catch (_error) {
+    return trimmed.replace(/\/$/, "");
+  }
 }
 
 function getCurrentUsagePeriod() {
