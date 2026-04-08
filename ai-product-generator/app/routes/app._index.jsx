@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import {
+  Form,
   useActionData,
   useLoaderData,
   useNavigation,
@@ -241,7 +242,7 @@ export default function AppIndex() {
       </s-section>
 
       <s-section heading="Generate description">
-        <form method="post" action="?index">
+        <Form method="post" action="?index">
           <input type="hidden" name="intent" value="generate" />
           <s-stack direction="block" gap="base">
             {needsProfile && (
@@ -266,7 +267,7 @@ export default function AppIndex() {
               Generate content
             </s-button>
           </s-stack>
-        </form>
+        </Form>
 
         {actionData?.message && actionData.intent === "generate" && (
           <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
@@ -301,7 +302,7 @@ export default function AppIndex() {
       <s-section
         heading={needsProfile ? "Business onboarding" : "Business profile"}
       >
-        <form method="post" action="?index">
+        <Form method="post" action="?index">
           <input type="hidden" name="intent" value="save-profile" />
           <s-stack direction="block" gap="base">
             <label htmlFor="businessType">Business type</label>
@@ -358,7 +359,7 @@ export default function AppIndex() {
               Save business profile
             </s-button>
           </s-stack>
-        </form>
+        </Form>
 
         {actionData?.message && actionData.intent === "save-profile" && (
           <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
@@ -366,7 +367,7 @@ export default function AppIndex() {
       </s-section>
 
       <s-section heading="Request a paid plan">
-        <form method="post" action="?index">
+        <Form method="post" action="?index">
           <input type="hidden" name="intent" value="request-plan" />
           <s-stack direction="block" gap="base">
             <label htmlFor="requestedPlanName">Choose plan</label>
@@ -436,7 +437,7 @@ export default function AppIndex() {
               Submit upgrade request
             </s-button>
           </s-stack>
-        </form>
+        </Form>
 
         {actionData?.message && actionData.intent === "request-plan" && (
           <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
