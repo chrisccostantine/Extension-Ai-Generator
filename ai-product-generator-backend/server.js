@@ -62,36 +62,44 @@ initializeDatabase().catch((error) => {
 });
 
 app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) {
-        callback(null, true);
-        return;
+  cors((req, callback) => {
+    const origin = req.get("origin");
+
+    if (!origin) {
+      callback(null, { origin: true });
+      return;
+    }
+
+    const hasValidExtensionToken =
+      Boolean(requiredAccessToken) &&
+      req.get("x-extension-token") === requiredAccessToken;
+    const hasValidAdminToken =
+      Boolean(adminPanelToken) && req.get("x-admin-token") === adminPanelToken;
+
+    if (hasValidExtensionToken || hasValidAdminToken) {
+      callback(null, { origin: true });
+      return;
+    }
+
+    const isAllowed = allowedOrigins.some((allowedOrigin) => {
+      if (allowedOrigin === "*") {
+        return true;
       }
 
-      const isAllowed = allowedOrigins.some((allowedOrigin) => {
-        if (allowedOrigin === "*") {
-          return true;
-        }
-
-        if (allowedOrigin.endsWith("*")) {
-          return origin.startsWith(allowedOrigin.slice(0, -1));
-        }
-
-        return origin === allowedOrigin;
-      });
-
-      if (!isAllowed) {
-        console.warn(
-          `Rejected CORS origin: ${origin}. Allowed origins: ${allowedOrigins.join(", ")}`,
-        );
+      if (allowedOrigin.endsWith("*")) {
+        return origin.startsWith(allowedOrigin.slice(0, -1));
       }
 
-      callback(
-        isAllowed ? null : new Error("Origin not allowed by CORS"),
-        isAllowed,
+      return origin === allowedOrigin;
+    });
+
+    if (!isAllowed) {
+      console.warn(
+        `Rejected CORS origin: ${origin}. Allowed origins: ${allowedOrigins.join(", ")}`,
       );
-    },
+    }
+
+    callback(null, { origin: isAllowed });
   }),
 );
 
