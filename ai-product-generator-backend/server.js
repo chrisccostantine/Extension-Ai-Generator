@@ -358,6 +358,7 @@ app.post("/plan-requests", async (req, res) => {
       typeof req.body?.requestedPlanName === "string"
         ? req.body.requestedPlanName.trim().toLowerCase()
         : "";
+    const billingInterval = normalizeBillingInterval(req.body?.billingInterval);
     const contactName = sanitizeText(req.body?.contactName, 120);
     const phoneNumber = sanitizeText(req.body?.phoneNumber, 60);
     const email = sanitizeText(req.body?.email, 160);
@@ -408,7 +409,12 @@ app.post("/plan-requests", async (req, res) => {
       return res.status(404).json({ error: "Requested plan was not found." });
     }
 
-    if (requestedPlan.price_cents <= 0) {
+    const requestedPlanPriceCents =
+      billingInterval === "yearly"
+        ? Number(requestedPlan.yearly_price_cents || 0)
+        : Number(requestedPlan.price_cents || 0);
+
+    if (requestedPlanPriceCents <= 0) {
       return res.status(400).json({
         error: "Only paid plans can be requested through manual approval.",
       });
@@ -416,6 +422,7 @@ app.post("/plan-requests", async (req, res) => {
 
     if (
       currentPlan.name === requestedPlan.name &&
+      normalizeBillingInterval(currentPlan.billing_interval) === billingInterval &&
       currentPlan.status === "active" &&
       currentPlan.is_active
     ) {
@@ -427,6 +434,7 @@ app.post("/plan-requests", async (req, res) => {
     const existingPendingRequest = await getPendingPlanRequestForShop(
       shop.id,
       requestedPlan.id,
+      billingInterval,
     );
 
     if (existingPendingRequest) {
@@ -440,6 +448,7 @@ app.post("/plan-requests", async (req, res) => {
       shopId: shop.id,
       currentPlanId: currentPlan.id || null,
       requestedPlanId: requestedPlan.id,
+      billingInterval,
       contactName,
       contactChannel,
       paymentMethod,
@@ -810,6 +819,11 @@ function sanitizeProofDataUrl(value) {
   return trimmed;
 }
 
+function normalizeBillingInterval(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "yearly" ? "yearly" : "monthly";
+}
+
 function normalizeOrigin(value) {
   if (typeof value !== "string") {
     return "";
@@ -1076,6 +1090,7 @@ async function initializeDatabase() {
           description TEXT NOT NULL DEFAULT '',
           monthly_generation_limit INTEGER NOT NULL,
           price_cents INTEGER NOT NULL DEFAULT 0,
+          yearly_price_cents INTEGER NOT NULL DEFAULT 0,
           is_active BOOLEAN NOT NULL DEFAULT TRUE,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1095,6 +1110,7 @@ async function initializeDatabase() {
           shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
           plan_id INTEGER NOT NULL REFERENCES plans(id),
           status TEXT NOT NULL DEFAULT 'active',
+          billing_interval TEXT NOT NULL DEFAULT 'monthly',
           current_period_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           current_period_end TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1128,6 +1144,7 @@ async function initializeDatabase() {
           current_plan_id INTEGER REFERENCES plans(id),
           requested_plan_id INTEGER NOT NULL REFERENCES plans(id),
           status TEXT NOT NULL DEFAULT 'pending',
+          billing_interval TEXT NOT NULL DEFAULT 'monthly',
           contact_name TEXT,
           contact_channel TEXT NOT NULL DEFAULT '',
           payment_method TEXT,
@@ -1194,6 +1211,19 @@ async function initializeDatabase() {
           AND subscriptions.current_period_end IS NULL
       `,
     },
+    {
+      version: "009_yearly_billing",
+      sql: `
+        ALTER TABLE plans
+        ADD COLUMN IF NOT EXISTS yearly_price_cents INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS billing_interval TEXT NOT NULL DEFAULT 'monthly';
+
+        ALTER TABLE plan_requests
+        ADD COLUMN IF NOT EXISTS billing_interval TEXT NOT NULL DEFAULT 'monthly';
+      `,
+    },
   ];
 
   for (const migration of migrations) {
@@ -1239,7 +1269,7 @@ async function listPlans() {
 
   const result = await pool.query(
     `
-      SELECT id, name, description, monthly_generation_limit, price_cents, is_active
+      SELECT id, name, description, monthly_generation_limit, price_cents, yearly_price_cents, is_active
       FROM plans
       WHERE is_active = TRUE
       ORDER BY price_cents ASC, id ASC
@@ -1260,7 +1290,7 @@ async function getPlanByName(name) {
 
   const result = await pool.query(
     `
-      SELECT id, name, description, monthly_generation_limit, price_cents, is_active
+      SELECT id, name, description, monthly_generation_limit, price_cents, yearly_price_cents, is_active
       FROM plans
       WHERE name = $1
       LIMIT 1
@@ -1277,36 +1307,41 @@ async function seedPlans() {
   }
 
   await pool.query(`
-    INSERT INTO plans (name, description, monthly_generation_limit, price_cents)
+    INSERT INTO plans (name, description, monthly_generation_limit, price_cents, yearly_price_cents)
     VALUES
       (
         'free',
         '5 generations per month for trying the app. Includes single-product generation only. Bulk tools and saved presets are not included.',
         5,
+        0,
         0
       ),
       (
         'starter',
         '300 generations per month for steady single-product work. Best for small catalogs that do not need bulk generation or saved presets yet.',
         300,
-        900
+        900,
+        9000
       ),
       (
         'growth',
         '1,000 generations per month with bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
         1000,
-        2400
+        2400,
+        24000
       ),
       (
         'scale',
         '3,000 generations per month with full access to bulk workflows, saved presets, multilingual generation, and advanced catalog optimization.',
         3000,
-        4900
+        4900,
+        49000
       )
     ON CONFLICT (name) DO UPDATE SET
       description = EXCLUDED.description,
       monthly_generation_limit = EXCLUDED.monthly_generation_limit,
       price_cents = EXCLUDED.price_cents,
+      yearly_price_cents = EXCLUDED.yearly_price_cents,
       is_active = TRUE,
       updated_at = NOW()
   `);
@@ -1487,8 +1522,10 @@ async function getPlanForShop(shopId) {
         plans.description,
         plans.monthly_generation_limit,
         plans.price_cents,
+        plans.yearly_price_cents,
         plans.is_active,
         subscriptions.status,
+        subscriptions.billing_interval,
         subscriptions.current_period_start,
         subscriptions.current_period_end
       FROM subscriptions
@@ -1538,6 +1575,7 @@ async function reconcileSubscriptionForShop(shopId) {
         subscriptions.id,
         subscriptions.shop_id,
         subscriptions.plan_id,
+        subscriptions.billing_interval,
         subscriptions.current_period_end,
         plans.price_cents
       FROM subscriptions
@@ -1575,12 +1613,44 @@ async function reconcileSubscriptionForShop(shopId) {
       SET
         plan_id = $2,
         status = 'active',
+        billing_interval = 'monthly',
         current_period_start = NOW(),
         current_period_end = NULL,
         updated_at = NOW()
       WHERE shop_id = $1
     `,
     [shopId, freePlanId],
+  );
+}
+
+async function reconcileExpiredSubscriptions() {
+  if (!pool) {
+    return;
+  }
+
+  const freePlanId = await getPlanIdByName(freePlanName);
+
+  if (!freePlanId) {
+    throw new Error(`Default plan "${freePlanName}" was not found.`);
+  }
+
+  await pool.query(
+    `
+      UPDATE subscriptions
+      SET
+        plan_id = $1,
+        status = 'active',
+        billing_interval = 'monthly',
+        current_period_start = NOW(),
+        current_period_end = NULL,
+        updated_at = NOW()
+      FROM plans
+      WHERE plans.id = subscriptions.plan_id
+        AND plans.price_cents > 0
+        AND subscriptions.current_period_end IS NOT NULL
+        AND subscriptions.current_period_end <= NOW()
+    `,
+    [freePlanId],
   );
 }
 
@@ -1592,6 +1662,8 @@ function buildFallbackFreePlan() {
       "5 generations per month for trying the app. Includes single-product generation only. Bulk tools and saved presets are not included.",
     monthly_generation_limit: monthlyGenerationLimit,
     price_cents: 0,
+    yearly_price_cents: 0,
+    billing_interval: "monthly",
     is_active: true,
   };
 }
@@ -1691,11 +1763,13 @@ async function getLatestPlanRequestForShop(shopId) {
         plan_requests.payment_method,
         plan_requests.payment_reference,
         plan_requests.customer_notes,
+        plan_requests.billing_interval,
         plan_requests.created_at,
         plan_requests.updated_at,
         requested_plans.name AS requested_plan_name,
         requested_plans.description AS requested_plan_description,
-        requested_plans.price_cents AS requested_plan_price_cents
+        requested_plans.price_cents AS requested_plan_price_cents,
+        requested_plans.yearly_price_cents AS requested_plan_yearly_price_cents
       FROM plan_requests
       JOIN plans AS requested_plans
         ON requested_plans.id = plan_requests.requested_plan_id
@@ -1876,7 +1950,7 @@ async function deleteContentPresetForShop(shopId, clientId, presetId) {
   }
 }
 
-async function getPendingPlanRequestForShop(shopId, requestedPlanId) {
+async function getPendingPlanRequestForShop(shopId, requestedPlanId, billingInterval) {
   if (!pool) {
     return null;
   }
@@ -1887,10 +1961,11 @@ async function getPendingPlanRequestForShop(shopId, requestedPlanId) {
       FROM plan_requests
       WHERE shop_id = $1
         AND requested_plan_id = $2
+        AND billing_interval = $3
         AND status = 'pending'
       LIMIT 1
     `,
-    [shopId, requestedPlanId],
+    [shopId, requestedPlanId, normalizeBillingInterval(billingInterval)],
   );
 
   return result.rows[0] || null;
@@ -1900,6 +1975,7 @@ async function createPlanRequest({
   shopId,
   currentPlanId,
   requestedPlanId,
+  billingInterval,
   contactName,
   contactChannel,
   paymentMethod,
@@ -1920,6 +1996,7 @@ async function createPlanRequest({
         current_plan_id,
         requested_plan_id,
         status,
+        billing_interval,
         contact_name,
         contact_channel,
         payment_method,
@@ -1929,13 +2006,14 @@ async function createPlanRequest({
         proof_mime_type,
         proof_data_url
       )
-      VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING id, status, created_at
     `,
     [
       shopId,
       currentPlanId,
       requestedPlanId,
+      normalizeBillingInterval(billingInterval),
       contactName,
       contactChannel,
       paymentMethod,
@@ -1991,6 +2069,7 @@ async function listPlanRequests(status) {
         plan_requests.payment_reference,
         plan_requests.customer_notes,
         plan_requests.admin_notes,
+        plan_requests.billing_interval,
         plan_requests.proof_file_name,
         plan_requests.proof_mime_type,
         plan_requests.proof_data_url,
@@ -2005,7 +2084,8 @@ async function listPlanRequests(status) {
         current_plans.description AS current_plan_description,
         requested_plans.name AS requested_plan_name,
         requested_plans.description AS requested_plan_description,
-        requested_plans.price_cents AS requested_plan_price_cents
+        requested_plans.price_cents AS requested_plan_price_cents,
+        requested_plans.yearly_price_cents AS requested_plan_yearly_price_cents
       FROM plan_requests
       JOIN shops ON shops.id = plan_requests.shop_id
       LEFT JOIN plans AS current_plans
@@ -2039,6 +2119,7 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
           plan_requests.id,
           plan_requests.shop_id,
           plan_requests.requested_plan_id,
+          plan_requests.billing_interval,
           plan_requests.status
         FROM plan_requests
         WHERE plan_requests.id = $1
@@ -2059,7 +2140,7 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
 
     const requestedPlanResult = await client.query(
       `
-        SELECT price_cents
+        SELECT price_cents, yearly_price_cents
         FROM plans
         WHERE id = $1
         LIMIT 1
@@ -2079,6 +2160,7 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
           shop_id,
           plan_id,
           status,
+          billing_interval,
           current_period_start,
           current_period_end,
           updated_at
@@ -2087,9 +2169,11 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
           $1,
           $2,
           'active',
+          $3,
           NOW(),
           CASE
-            WHEN $3 > 0 THEN NOW() + INTERVAL '1 month'
+            WHEN $4 > 0 AND $3 = 'yearly' THEN NOW() + INTERVAL '1 year'
+            WHEN $4 > 0 THEN NOW() + INTERVAL '1 month'
             ELSE NULL
           END,
           NOW()
@@ -2098,6 +2182,7 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
         DO UPDATE SET
           plan_id = EXCLUDED.plan_id,
           status = 'active',
+          billing_interval = EXCLUDED.billing_interval,
           current_period_start = NOW(),
           current_period_end = EXCLUDED.current_period_end,
           updated_at = NOW()
@@ -2105,7 +2190,10 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
       [
         requestRow.shop_id,
         requestRow.requested_plan_id,
-        Number(requestedPlan.price_cents || 0),
+        normalizeBillingInterval(requestRow.billing_interval),
+        normalizeBillingInterval(requestRow.billing_interval) === "yearly"
+          ? Number(requestedPlan.yearly_price_cents || 0)
+          : Number(requestedPlan.price_cents || 0),
       ],
     );
 
@@ -2181,6 +2269,8 @@ async function getAdminSummary() {
     };
   }
 
+  await reconcileExpiredSubscriptions();
+
   const [requestCounts, activeShops, usageEvents] = await Promise.all([
     pool.query(`
       SELECT
@@ -2212,11 +2302,14 @@ async function listAdminSubscriptions() {
     return [];
   }
 
+  await reconcileExpiredSubscriptions();
+
   const result = await pool.query(
     `
       SELECT
         subscriptions.id,
         subscriptions.status,
+        subscriptions.billing_interval,
         subscriptions.current_period_start,
         subscriptions.current_period_end,
         subscriptions.updated_at,
@@ -2226,6 +2319,7 @@ async function listAdminSubscriptions() {
         plans.name AS plan_name,
         plans.description AS plan_description,
         plans.price_cents,
+        plans.yearly_price_cents,
         plans.monthly_generation_limit,
         latest_requests.contact_name AS latest_contact_name,
         latest_requests.contact_channel AS latest_contact_channel,

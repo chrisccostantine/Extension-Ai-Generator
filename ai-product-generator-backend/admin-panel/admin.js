@@ -190,6 +190,7 @@ function renderRequests(requests) {
             </div>
             <div>
               <p><strong>${escapeHtml(request.current_plan_name || "free")}</strong> to <strong>${escapeHtml(request.requested_plan_name)}</strong></p>
+              <p class="muted">${escapeHtml(formatBillingInterval(request.billing_interval))}</p>
               <p class="muted">Requested ${formatDate(request.created_at)}</p>
             </div>
           </div>
@@ -230,6 +231,7 @@ function renderSubscriptions(subscriptions) {
             </div>
             <div>
               <p><strong>${escapeHtml(subscription.plan_name || "free")}</strong></p>
+              <p class="muted">${escapeHtml(formatBillingInterval(subscription.billing_interval))}</p>
               <p class="muted">${escapeHtml(subscription.plan_description || "No plan description available.")}</p>
             </div>
           </div>
@@ -364,6 +366,12 @@ function formatDate(value) {
 function formatNumber(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? number.toLocaleString() : "0";
+}
+
+function formatBillingInterval(value) {
+  return String(value || "monthly").trim().toLowerCase() === "yearly"
+    ? "Yearly billing"
+    : "Monthly billing";
 }
 
 function escapeHtml(value) {

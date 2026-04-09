@@ -1,5 +1,5 @@
 /* global Buffer, process */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Form,
   useActionData,
@@ -345,6 +345,10 @@ export const action = async ({ request }) => {
       const requestedPlanName = String(formData.get("requestedPlanName") || "")
         .trim()
         .toLowerCase();
+      const billingInterval =
+        String(formData.get("billingInterval") || "").trim().toLowerCase() === "yearly"
+          ? "yearly"
+          : "monthly";
       const contactName = String(formData.get("contactName") || "").trim();
       const phoneNumber = String(formData.get("phoneNumber") || "").trim();
       const email = String(formData.get("email") || "").trim();
@@ -396,6 +400,7 @@ export const action = async ({ request }) => {
         body: {
           clientId,
           requestedPlanName,
+          billingInterval,
           contactName,
           phoneNumber,
           email,
@@ -443,6 +448,7 @@ export default function AppIndex() {
     [data.plans],
   );
   const currentPlanName = data.shopStatus?.plan?.name || "";
+  const currentBillingInterval = data.shopStatus?.plan?.billing_interval || "monthly";
   const presets = data.presets || [];
   const auditFilters = data.auditFilters || emptyAuditFilters;
   const planFeatures = data.shopStatus?.plan?.features || emptyPlanFeatures;
@@ -453,6 +459,7 @@ export default function AppIndex() {
   const auditItems = data.audit?.items || [];
   const previewItems =
     actionData?.intent === "preview-bulk-generate-audit" ? actionData.previews || [] : [];
+  const [billingInterval, setBillingInterval] = useState("monthly");
 
   return (
     <s-page heading="AI Product Generator">
@@ -474,6 +481,11 @@ export default function AppIndex() {
             <s-text>Current plan: </s-text>
             <strong>{data.shopStatus?.plan?.name || "Unavailable"}</strong>
           </s-paragraph>
+          {Number(data.shopStatus?.plan?.price_cents || 0) > 0 && (
+            <s-paragraph>
+              Billing cycle: {capitalizePlanName(data.shopStatus?.plan?.billing_interval || "monthly")}
+            </s-paragraph>
+          )}
           {data.shopStatus?.plan?.description && (
             <s-paragraph>{data.shopStatus.plan.description}</s-paragraph>
           )}
@@ -490,6 +502,7 @@ export default function AppIndex() {
           {data.shopStatus?.latestRequest && (
             <s-paragraph>
               Latest request: {data.shopStatus.latestRequest.requested_plan_name} (
+              {capitalizePlanName(data.shopStatus.latestRequest.billing_interval || "monthly")},{" "}
               {data.shopStatus.latestRequest.status})
             </s-paragraph>
           )}
@@ -1002,12 +1015,49 @@ export default function AppIndex() {
       <s-section heading="Request a paid plan">
         <Form method="post" action="?index" encType="multipart/form-data">
           <input type="hidden" name="intent" value="request-plan" />
+          <input type="hidden" name="billingInterval" value={billingInterval} />
           <s-stack direction="block" gap="base">
+            <div style={billingToggleStyle}>
+              <strong>Billing cycle</strong>
+              <div style={billingToggleOptionsStyle}>
+                <label style={billingOptionStyle}>
+                  <input
+                    type="radio"
+                    name="billingIntervalOption"
+                    value="monthly"
+                    checked={billingInterval === "monthly"}
+                    onChange={() => setBillingInterval("monthly")}
+                  />
+                  <span>Monthly</span>
+                </label>
+                <label style={billingOptionStyle}>
+                  <input
+                    type="radio"
+                    name="billingIntervalOption"
+                    value="yearly"
+                    checked={billingInterval === "yearly"}
+                    onChange={() => setBillingInterval("yearly")}
+                  />
+                  <span>Yearly</span>
+                </label>
+              </div>
+              <p style={billingHintStyle}>Yearly saves about 2 months compared with paying monthly.</p>
+            </div>
             <p style={sectionLabelStyle}>Choose plan</p>
             {paidPlans.length ? (
               <div style={planGridStyle}>
                 {paidPlans.map((plan) => {
-                  const isCurrentPlan = plan.name === currentPlanName;
+                  const isCurrentPlan =
+                    plan.name === currentPlanName &&
+                    billingInterval === currentBillingInterval;
+                  const activePriceCents =
+                    billingInterval === "yearly"
+                      ? Number(plan.yearly_price_cents || 0)
+                      : Number(plan.price_cents || 0);
+                  const equivalentMonthlyPrice =
+                    billingInterval === "yearly"
+                      ? Math.round(activePriceCents / 12)
+                      : Number(plan.price_cents || 0);
                   return (
                     <label key={plan.id} style={planCardStyle}>
                       <input
@@ -1019,12 +1069,19 @@ export default function AppIndex() {
                       <div style={planCardContentStyle}>
                         <div style={planCardHeaderStyle}>
                           <strong style={planNameStyle}>{capitalizePlanName(plan.name)}</strong>
-                          <strong>${(plan.price_cents / 100).toFixed(2)} / month</strong>
+                          <strong>
+                            ${formatCurrency(activePriceCents)} / {billingInterval === "yearly" ? "year" : "month"}
+                          </strong>
                         </div>
                         <p style={planDescriptionStyle}>
                           {plan.description ||
                             "Monthly access to AI product generation for your store."}
                         </p>
+                        {billingInterval === "yearly" && (
+                          <p style={planMetaStyle}>
+                            Equivalent to about ${formatCurrency(equivalentMonthlyPrice)} / month
+                          </p>
+                        )}
                         {plan.features_list?.length ? (
                           <ul style={planFeatureListStyle}>
                             {plan.features_list.map((feature) => (
@@ -1239,6 +1296,28 @@ const inputStyle = {
 const planGridStyle = {
   display: "grid",
   gap: "12px",
+};
+
+const billingToggleStyle = {
+  display: "grid",
+  gap: "8px",
+};
+
+const billingToggleOptionsStyle = {
+  display: "flex",
+  gap: "16px",
+  flexWrap: "wrap",
+};
+
+const billingOptionStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+};
+
+const billingHintStyle = {
+  margin: 0,
+  color: "#4b5563",
 };
 
 const planCardStyle = {
@@ -1501,6 +1580,10 @@ function capitalizePlanName(value) {
   return String(value || "")
     .replace(/[-_]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatCurrency(cents) {
+  return (Number(cents || 0) / 100).toFixed(2);
 }
 
 async function getCatalogAudit(admin, filters) {
