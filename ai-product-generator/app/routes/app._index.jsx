@@ -1536,6 +1536,9 @@ export default function AppIndex() {
           <input type="hidden" name="intent" value="request-plan" />
           <input type="hidden" name="billingInterval" value={billingInterval} />
           <s-stack direction="block" gap="base">
+            <s-paragraph>
+              Choose the plan that matches how often you create product copy and visuals. Higher plans unlock bulk workflows, saved presets, multilingual output, and monthly image credits.
+            </s-paragraph>
             <div style={billingToggleStyle}>
               <strong>Billing cycle</strong>
               <div style={billingToggleOptionsStyle}>
@@ -1560,7 +1563,9 @@ export default function AppIndex() {
                   <span>Yearly</span>
                 </label>
               </div>
-              <p style={billingHintStyle}>Yearly saves about 2 months compared with paying monthly.</p>
+              <p style={billingHintStyle}>
+                Yearly billing keeps the same monthly limits, lowers the effective monthly cost, and reduces renewal follow-up.
+              </p>
             </div>
             <p style={sectionLabelStyle}>Choose plan</p>
             {paidPlans.length ? (
@@ -1577,6 +1582,10 @@ export default function AppIndex() {
                     billingInterval === "yearly"
                       ? Math.round(activePriceCents / 12)
                       : Number(plan.price_cents || 0);
+                  const yearlySavings =
+                    billingInterval === "yearly"
+                      ? Number(plan.price_cents || 0) * 12 - activePriceCents
+                      : 0;
                   return (
                     <label key={plan.id} style={planCardStyle}>
                       <input
@@ -1586,6 +1595,16 @@ export default function AppIndex() {
                         defaultChecked={plan.name === defaultRequestedPlanName}
                       />
                       <div style={planCardContentStyle}>
+                        <div style={planBadgeRowStyle}>
+                          {getPlanAudienceLabel(plan.name) ? (
+                            <span style={planAudienceBadgeStyle}>
+                              {getPlanAudienceLabel(plan.name)}
+                            </span>
+                          ) : null}
+                          {plan.name === "growth" ? (
+                            <span style={planBestValueBadgeStyle}>Best value</span>
+                          ) : null}
+                        </div>
                         <div style={planCardHeaderStyle}>
                           <strong style={planNameStyle}>{capitalizePlanName(plan.name)}</strong>
                           <strong>
@@ -1601,6 +1620,12 @@ export default function AppIndex() {
                             Equivalent to about ${formatCurrency(equivalentMonthlyPrice)} / month
                           </p>
                         )}
+                        {billingInterval === "yearly" && yearlySavings > 0 && (
+                          <p style={planSavingsStyle}>
+                            You save ${formatCurrency(yearlySavings)} per year compared with monthly billing.
+                          </p>
+                        )}
+                        <p style={planFitTextStyle}>{getPlanFitSummary(plan.name)}</p>
                         {plan.features_list?.length ? (
                           <ul style={planFeatureListStyle}>
                             {plan.features_list.map((feature) => (
@@ -1889,6 +1914,12 @@ const planCardContentStyle = {
   gap: "6px",
 };
 
+const planBadgeRowStyle = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+};
+
 const planCardHeaderStyle = {
   display: "flex",
   justifyContent: "space-between",
@@ -1923,6 +1954,40 @@ const planCurrentBadgeStyle = {
   margin: 0,
   color: "#0f766e",
   fontWeight: 600,
+};
+
+const planAudienceBadgeStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "4px 8px",
+  borderRadius: "999px",
+  background: "#eef2ff",
+  color: "#3730a3",
+  fontSize: "12px",
+  fontWeight: 600,
+};
+
+const planBestValueBadgeStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "4px 8px",
+  borderRadius: "999px",
+  background: "#ecfdf5",
+  color: "#047857",
+  fontSize: "12px",
+  fontWeight: 700,
+};
+
+const planSavingsStyle = {
+  margin: 0,
+  color: "#047857",
+  fontWeight: 600,
+};
+
+const planFitTextStyle = {
+  margin: 0,
+  color: "#374151",
+  lineHeight: 1.5,
 };
 
 const bulkControlsStyle = {
@@ -2183,6 +2248,42 @@ function capitalizePlanName(value) {
   return String(value || "")
     .replace(/[-_]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function getPlanAudienceLabel(planName) {
+  const normalized = String(planName || "").trim().toLowerCase();
+
+  if (normalized === "starter") {
+    return "For smaller stores";
+  }
+
+  if (normalized === "growth") {
+    return "For growing catalogs";
+  }
+
+  if (normalized === "scale") {
+    return "For heavy usage";
+  }
+
+  return "";
+}
+
+function getPlanFitSummary(planName) {
+  const normalized = String(planName || "").trim().toLowerCase();
+
+  if (normalized === "starter") {
+    return "Best if you mainly work product by product and want affordable monthly access without bulk or image workflows.";
+  }
+
+  if (normalized === "growth") {
+    return "Best if you want the full working toolkit: bulk content, saved presets, multilingual output, and enough image credits for regular use.";
+  }
+
+  if (normalized === "scale") {
+    return "Best if your store or team updates products often, relies on image generation heavily, and needs larger monthly capacity.";
+  }
+
+  return "";
 }
 
 function formatCurrency(cents) {
