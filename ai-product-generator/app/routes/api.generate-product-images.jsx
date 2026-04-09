@@ -46,6 +46,7 @@ export const action = async ({ request }) => {
     const stylePreset = String(parsed.imageStylePreset || "clean-studio").trim();
     const outputSize = String(parsed.imageOutputSize || "1024x1024").trim();
     const backgroundStyle = String(parsed.imageBackgroundStyle || "white").trim();
+    const imageCount = normalizeImageCount(parsed.imageCount);
     const files = Array.isArray(parsed.productImages) ? parsed.productImages : [];
 
     if (!productId) {
@@ -78,6 +79,7 @@ export const action = async ({ request }) => {
         stylePreset,
         outputSize,
         backgroundStyle,
+        imageCount,
         sourceImages,
       }),
     });
@@ -142,10 +144,20 @@ async function parseRequestPayload(request) {
     imageStylePreset: String(formData.get("imageStylePreset") || "").trim(),
     imageOutputSize: String(formData.get("imageOutputSize") || "").trim(),
     imageBackgroundStyle: String(formData.get("imageBackgroundStyle") || "").trim(),
+    imageCount: String(formData.get("imageCount") || "1").trim(),
     productImages: formData
       .getAll("productImages")
       .filter((value) => value && typeof value === "object"),
   };
+}
+
+function normalizeImageCount(value) {
+  const parsed = Number.parseInt(String(value || "1"), 10);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+
+  return Math.min(4, Math.max(1, parsed));
 }
 
 async function serializeUploadedImages(files) {

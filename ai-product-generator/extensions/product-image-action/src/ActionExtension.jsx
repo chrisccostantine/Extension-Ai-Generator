@@ -16,6 +16,7 @@ function Extension() {
   const [stylePreset, setStylePreset] = useState("clean-studio");
   const [outputSize, setOutputSize] = useState("1024x1024");
   const [backgroundStyle, setBackgroundStyle] = useState("white");
+  const [imageCount, setImageCount] = useState("1");
   const [instructions, setInstructions] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [generatedImages, setGeneratedImages] = useState([]);
@@ -83,6 +84,7 @@ function Extension() {
       formData.append("imageStylePreset", stylePreset);
       formData.append("imageOutputSize", outputSize);
       formData.append("imageBackgroundStyle", backgroundStyle);
+      formData.append("imageCount", imageCount);
       formData.append("imageInstructions", instructions);
 
       selectedFiles.forEach((file) => {
@@ -204,6 +206,18 @@ function Extension() {
               <s-option value="white">White</s-option>
               <s-option value="soft-gray">Soft gray</s-option>
               <s-option value="transparent">Transparent</s-option>
+            </s-select>
+
+            <s-select
+              id="imageCount"
+              label="Number of images"
+              value={imageCount}
+              onChange={(event) => setImageCount(event.currentTarget.value)}
+            >
+              <s-option value="1">1 image</s-option>
+              <s-option value="2">2 images</s-option>
+              <s-option value="3">3 images</s-option>
+              <s-option value="4">4 images</s-option>
             </s-select>
 
             <s-text-area

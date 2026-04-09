@@ -384,7 +384,10 @@ app.post("/generate-product-images", async (req, res) => {
     const stylePreset = sanitizeImageStylePreset(req.body?.stylePreset);
     const outputSize = sanitizeImageOutputSize(req.body?.outputSize);
     const backgroundStyle = sanitizeImageBackgroundStyle(req.body?.backgroundStyle);
+    const imageCount = sanitizeImageCount(req.body?.imageCount);
     const sourceImages = sanitizeImageDataUrls(req.body?.sourceImages);
+    const monthlyImageLimit = Number(plan.monthly_image_limit || 0);
+    const remainingImageCredits = Math.max(0, monthlyImageLimit - imageUsage.count);
 
     if (!hasPlanFeature(plan, "imageGenerationEnabled")) {
       return res.status(403).json({
@@ -392,12 +395,12 @@ app.post("/generate-product-images", async (req, res) => {
       });
     }
 
-    if (imageUsage.count >= Number(plan.monthly_image_limit || 0)) {
+    if (imageUsage.count >= monthlyImageLimit) {
       return res.status(429).json({
         error: "Monthly image generation limit reached for this shop.",
         imageUsage: {
           count: imageUsage.count,
-          limit: Number(plan.monthly_image_limit || 0),
+          limit: monthlyImageLimit,
           period: imageUsage.period,
         },
       });
@@ -429,6 +432,7 @@ app.post("/generate-product-images", async (req, res) => {
       model: "gpt-image-1",
       image: uploadables,
       prompt: imagePrompt,
+      n: Math.min(imageCount, remainingImageCredits || imageCount),
       quality: "high",
       size: outputSize,
       background: backgroundStyle === "transparent" ? "transparent" : "opaque",
@@ -461,19 +465,22 @@ app.post("/generate-product-images", async (req, res) => {
       outputImages: generatedImages,
       lastError: "",
     });
-    await recordImageUsageEvent(
-      shop.id,
-      imageUsage.period,
-      `${stylePreset}:${sourceImages.length}`,
-    );
+    const consumedCredits = generatedImages.length;
+    for (let index = 0; index < consumedCredits; index += 1) {
+      await recordImageUsageEvent(
+        shop.id,
+        imageUsage.period,
+        `${stylePreset}:${sourceImages.length}:${index + 1}`,
+      );
+    }
 
     return res.json({
       message: "Product images generated successfully.",
       job,
       images: generatedImages,
       imageUsage: {
-        count: imageUsage.count + 1,
-        limit: Number(plan.monthly_image_limit || 0),
+        count: imageUsage.count + consumedCredits,
+        limit: monthlyImageLimit,
         period: imageUsage.period,
       },
     });
@@ -1177,6 +1184,15 @@ function sanitizeImageBackgroundStyle(value) {
   const supported = new Set(["white", "transparent", "soft-gray"]);
   const normalized = sanitizeText(value, 40).toLowerCase();
   return supported.has(normalized) ? normalized : "white";
+}
+
+function sanitizeImageCount(value) {
+  const numeric = Number.parseInt(String(value ?? "1"), 10);
+  if (!Number.isFinite(numeric)) {
+    return 1;
+  }
+
+  return Math.min(4, Math.max(1, numeric));
 }
 
 function normalizeBillingInterval(value) {

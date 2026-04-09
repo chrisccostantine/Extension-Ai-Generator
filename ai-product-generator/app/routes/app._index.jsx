@@ -630,6 +630,7 @@ export const action = async ({ request }) => {
       const stylePreset = String(formData.get("imageStylePreset") || "").trim();
       const outputSize = String(formData.get("imageOutputSize") || "").trim();
       const backgroundStyle = String(formData.get("imageBackgroundStyle") || "").trim();
+      const imageCount = normalizeImageCount(formData.get("imageCount"));
       const selectedImageProductId = String(formData.get("imageProductId") || "").trim();
       const files = formData
         .getAll("productImages")
@@ -662,6 +663,7 @@ export const action = async ({ request }) => {
           stylePreset,
           outputSize,
           backgroundStyle,
+          imageCount,
           sourceImages,
         },
       });
@@ -1453,6 +1455,20 @@ export default function AppIndex() {
                       <option value="white">White</option>
                       <option value="soft-gray">Soft gray</option>
                       <option value="transparent">Transparent</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="imageCount">Number of images</label>
+                    <select
+                      id="imageCount"
+                      name="imageCount"
+                      style={inputStyle}
+                      defaultValue="1"
+                    >
+                      <option value="1">1 image</option>
+                      <option value="2">2 images</option>
+                      <option value="3">3 images</option>
+                      <option value="4">4 images</option>
                     </select>
                   </div>
                 </div>
@@ -2956,6 +2972,15 @@ function formatDateTime(value) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
+function normalizeImageCount(value) {
+  const parsed = Number.parseInt(String(value ?? "1"), 10);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+
+  return Math.min(4, Math.max(1, parsed));
 }
 
 function stripHtml(value) {
