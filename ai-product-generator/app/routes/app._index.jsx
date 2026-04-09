@@ -1792,11 +1792,11 @@ export default function AppIndex() {
                           </ul>
                         ) : null}
                         <p style={planMetaStyle}>
-                          {plan.monthly_generation_limit.toLocaleString()} generations per month
+                          {formatNumber(plan.monthly_generation_limit)} generations per month
                         </p>
                         {Number(plan.monthly_image_limit || 0) > 0 && (
                           <p style={planMetaStyle}>
-                            {plan.monthly_image_limit.toLocaleString()} image credits per month
+                            {formatNumber(plan.monthly_image_limit)} image credits per month
                           </p>
                         )}
                         {isCurrentPlan && (
@@ -2942,13 +2942,20 @@ function formatDateTime(value) {
     return "an unknown date";
   }
 
-  return date.toLocaleString(undefined, {
+  return date.toLocaleString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+    timeZoneName: "short",
   });
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-US").format(Number(value || 0));
 }
 
 function stripHtml(value) {
