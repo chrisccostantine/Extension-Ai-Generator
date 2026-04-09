@@ -1,0 +1,13 @@
+{
+  "name": "Generer des images",
+  "title": "Images produit IA",
+  "currentProduct": "Produit actuel :",
+  "loadingProduct": "Chargement du produit selectionne...",
+  "description": "Generez des images produit, puis enregistrez-les directement sur ce produit.",
+  "generate": "Generer des images",
+  "generating": "Generation...",
+  "save": "Enregistrer sur le produit",
+  "saving": "Enregistrement...",
+  "regenerate": "Regenerer",
+  "close": "Fermer"
+}

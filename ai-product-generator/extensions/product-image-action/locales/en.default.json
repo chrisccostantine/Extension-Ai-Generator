@@ -1,0 +1,13 @@
+{
+  "name": "Generate images",
+  "title": "AI Product Images",
+  "currentProduct": "Current product:",
+  "loadingProduct": "Loading the selected product...",
+  "description": "Generate polished product images from uploaded references, then save them directly to this product.",
+  "generate": "Generate images",
+  "generating": "Generating...",
+  "save": "Save images to product",
+  "saving": "Saving...",
+  "regenerate": "Regenerate",
+  "close": "Close"
+}
