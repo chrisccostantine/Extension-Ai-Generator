@@ -11,15 +11,15 @@
     <section class="hero">
       <div>
         <p class="eyebrow">Manual Billing Admin</p>
-        <h1>Upgrade Requests</h1>
-        <p class="subtitle">Review payment requests, approve paid plans, and keep shop access under your control.</p>
+        <h1>AI Product Generator Admin</h1>
+        <p class="subtitle">Manage stores, review plan requests, and control subscription access from one place.</p>
       </div>
       <button id="logoutBtn" class="ghost">Log Out</button>
     </section>
 
-    <section id="loginCard" class="card">
+    <section id="loginCard" class="card authCard">
       <h2>Admin Login</h2>
-      <p class="muted">Use the same secret you set in Railway as <code>ADMIN_PANEL_TOKEN</code>.</p>
+      <p class="muted">Use your <code>ADMIN_PANEL_TOKEN</code> to open the dashboard.</p>
       <label class="fieldLabel" for="adminToken">Admin Token</label>
       <input id="adminToken" type="password" placeholder="Paste admin token" />
       <button id="loginBtn">Open Dashboard</button>
@@ -28,65 +28,76 @@
     <section id="dashboard" class="hidden">
       <div class="summaryGrid">
         <article class="metricCard">
-          <span>Pending Requests</span>
+          <span>Pending requests</span>
           <strong id="pendingCount">0</strong>
         </article>
         <article class="metricCard">
-          <span>Approved Requests</span>
+          <span>Accepted requests</span>
           <strong id="approvedCount">0</strong>
         </article>
         <article class="metricCard">
-          <span>Active Shops</span>
+          <span>Active shops</span>
           <strong id="activeShops">0</strong>
         </article>
         <article class="metricCard">
-          <span>Total Generations</span>
+          <span>Total generations</span>
           <strong id="totalUsage">0</strong>
         </article>
       </div>
 
-      <section class="card infoCard">
+      <section class="card topBar">
         <div>
-          <h2>Manual Billing Notes</h2>
+          <h2>Admin workspace</h2>
           <p id="paymentInstructions" class="muted"></p>
           <p id="supportContact" class="muted"></p>
         </div>
-        <div class="filters">
-          <label for="statusFilter">Request Filter</label>
-          <select id="statusFilter">
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="">All</option>
-          </select>
-          <label for="subscriptionSearch">Subscription Search</label>
-          <input id="subscriptionSearch" type="text" placeholder="Search shop or client id" />
-          <button id="refreshBtn" class="secondary">Refresh</button>
+        <div class="topBarActions">
+          <button id="refreshBtn" class="secondary">Refresh Data</button>
         </div>
       </section>
 
       <section class="card">
-        <div class="sectionHead">
-          <h2>Plan Requests</h2>
-          <p class="muted">Approve a request after you confirm the local payment.</p>
-        </div>
-        <div id="requestsList" class="requestList"></div>
-      </section>
+        <nav class="viewTabs" aria-label="Admin pages">
+          <button id="tabStores" class="tabButton active" type="button">Stores</button>
+          <button id="tabRequests" class="tabButton" type="button">Requests</button>
+        </nav>
 
-      <section class="card">
-        <div class="sectionHead">
-          <h2>Subscribed Shops</h2>
-          <p class="muted">View current plans, renewal dates, and the latest billing contact details.</p>
-        </div>
-        <div id="subscriptionsList" class="requestList"></div>
-      </section>
+        <div id="storesView" class="viewPanel">
+          <div class="panelHead">
+            <div>
+              <h3>Stores</h3>
+              <p class="muted">Click any store to view subscription details and override plans.</p>
+            </div>
+            <div class="panelFilters">
+              <label for="subscriptionSearch" class="srOnly">Search stores</label>
+              <input id="subscriptionSearch" type="text" placeholder="Search by store or domain" />
+            </div>
+          </div>
 
-      <section class="card">
-        <div class="sectionHead">
-          <h2>Recent Catalog Jobs</h2>
-          <p class="muted">Track bulk previews and apply runs across all stores.</p>
+          <div class="storesLayout">
+            <div id="storesList" class="storeList"></div>
+            <div id="storeDetails" class="storeDetails emptyState">
+              Select a store to see details.
+            </div>
+          </div>
         </div>
-        <div id="catalogJobsList" class="requestList"></div>
+
+        <div id="requestsView" class="viewPanel hidden">
+          <div class="panelHead">
+            <div>
+              <h3>Plan requests</h3>
+              <p class="muted">Filter requests by status and approve or reject pending requests.</p>
+            </div>
+            <div class="statusTabs" role="tablist" aria-label="Request status filters">
+              <button id="requestFilterPending" class="statusTab active" type="button" data-status="pending">Pending</button>
+              <button id="requestFilterAccepted" class="statusTab" type="button" data-status="approved">Accepted</button>
+              <button id="requestFilterRejected" class="statusTab" type="button" data-status="rejected">Rejected</button>
+              <button id="requestFilterAll" class="statusTab" type="button" data-status="">All</button>
+            </div>
+          </div>
+
+          <div id="requestsList" class="requestList"></div>
+        </div>
       </section>
     </section>
 
