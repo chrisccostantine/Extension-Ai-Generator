@@ -230,18 +230,19 @@ async function serializeUploadedImages(files) {
   const uploads = [];
 
   for (const file of files) {
-    if (!file?.name || !file?.type) {
+    if (!file || typeof file.arrayBuffer !== "function" || !file?.name) {
       continue;
     }
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const base64 = buffer.toString("base64");
-    const extension = inferExtension(file.type, file.name);
+    const mimeType = String(file.type || guessMimeTypeFromFileName(file.name) || "image/png");
+    const extension = inferExtension(mimeType, file.name);
 
     uploads.push({
       fileName: file.name,
-      mimeType: file.type,
+      mimeType,
       extension,
       base64,
     });
@@ -265,6 +266,23 @@ function inferExtension(mimeType, fallbackName) {
 
   const fallback = String(fallbackName || "").split(".").pop();
   return fallback || "png";
+}
+
+function guessMimeTypeFromFileName(name) {
+  const lower = String(name || "").toLowerCase();
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+
+  if (lower.endsWith(".png")) {
+    return "image/png";
+  }
+
+  if (lower.endsWith(".webp")) {
+    return "image/webp";
+  }
+
+  return "";
 }
 
 async function addImagesToShopifyProduct(admin, { productId, images }) {
