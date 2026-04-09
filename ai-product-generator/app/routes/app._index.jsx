@@ -1030,7 +1030,7 @@ export default function AppIndex() {
               </p>
             </div>
 
-            <label htmlFor="contactName">Your name</label>
+            <label htmlFor="contactName">Your name *</label>
             <input
               id="contactName"
               name="contactName"
@@ -1040,7 +1040,7 @@ export default function AppIndex() {
               required
             />
 
-            <label htmlFor="phoneNumber">Phone number</label>
+            <label htmlFor="phoneNumber">Phone number *</label>
             <input
               id="phoneNumber"
               name="phoneNumber"
