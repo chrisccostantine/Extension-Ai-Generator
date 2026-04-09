@@ -19,6 +19,12 @@ const paymentInstructions =
 const supportContact =
   process.env.SUPPORT_CONTACT ||
   "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com";
+const allowedPaymentMethods = [
+  "Whish",
+  "OMT Wallet",
+  "BOB Finance",
+  "Bank Audi Neo",
+];
 const maxProofDataUrlLength = 2500000;
 const defaultAllowedOrigins = [
   "http://localhost:3000",
@@ -379,6 +385,13 @@ app.post("/plan-requests", async (req, res) => {
       return res
         .status(400)
         .json({ error: "Please provide a phone number for follow-up." });
+    }
+
+    if (!allowedPaymentMethods.includes(paymentMethod)) {
+      return res.status(400).json({
+        error:
+          "Please choose one of the supported payment methods: Whish, OMT Wallet, BOB Finance, or Bank Audi Neo.",
+      });
     }
 
     const shop = await ensureShop(clientId);

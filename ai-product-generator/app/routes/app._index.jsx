@@ -13,6 +13,12 @@ const PAYMENT_INSTRUCTIONS_TEXT =
   "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 936. After payment, submit your transaction reference and optional proof screenshot in the app.";
 const SUPPORT_CONTACT_TEXT =
   "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com";
+const PAYMENT_METHOD_OPTIONS = [
+  "Whish",
+  "OMT Wallet",
+  "BOB Finance",
+  "Bank Audi Neo",
+];
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -362,6 +368,14 @@ export const action = async ({ request }) => {
           ok: false,
           intent,
           message: "Phone number is required.",
+        };
+      }
+
+      if (!PAYMENT_METHOD_OPTIONS.includes(paymentMethod)) {
+        return {
+          ok: false,
+          intent,
+          message: "Please select a valid payment method.",
         };
       }
 
@@ -1059,14 +1073,23 @@ export default function AppIndex() {
               style={inputStyle}
             />
 
-            <label htmlFor="paymentMethod">Payment method</label>
-            <input
+            <label htmlFor="paymentMethod">Payment method *</label>
+            <select
               id="paymentMethod"
               name="paymentMethod"
-              type="text"
-              placeholder="OMT, Whish, BOB Finance, bank transfer..."
               style={inputStyle}
-            />
+              defaultValue=""
+              required
+            >
+              <option value="" disabled>
+                Select a payment method
+              </option>
+              {PAYMENT_METHOD_OPTIONS.map((method) => (
+                <option key={method} value={method}>
+                  {method}
+                </option>
+              ))}
+            </select>
 
             <label htmlFor="paymentReference">Payment reference</label>
             <input
