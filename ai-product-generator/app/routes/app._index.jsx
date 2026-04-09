@@ -70,7 +70,18 @@ export const loader = async ({ request }) => {
       shopStatusResult.status === "fulfilled" ? shopStatusResult.value : null;
     const plansPayload =
       plansResult.status === "fulfilled" ? plansResult.value : { plans: [] };
-    const presetsResult = { status: "fulfilled", value: { presets: [] } };
+    const presetsResult = shopStatus?.plan?.features?.presetsEnabled
+      ? await Promise.race([
+          backendRequest({
+            backend,
+            pathname: "/content-presets",
+            method: "GET",
+            clientId,
+            timeoutMs: 1200,
+          }).then((value) => ({ status: "fulfilled", value })),
+          new Promise((resolve) => setTimeout(() => resolve({ status: "rejected" }), 1200)),
+        ])
+      : { status: "fulfilled", value: { presets: [] } };
 
     return {
       backendConfigured:
