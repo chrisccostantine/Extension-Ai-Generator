@@ -1165,6 +1165,19 @@ async function initializeDatabase() {
         )
       `,
     },
+    {
+      version: "008_subscription_expiry",
+      sql: `
+        UPDATE subscriptions
+        SET
+          current_period_end = current_period_start + INTERVAL '1 month',
+          updated_at = NOW()
+        FROM plans
+        WHERE plans.id = subscriptions.plan_id
+          AND plans.price_cents > 0
+          AND subscriptions.current_period_end IS NULL
+      `,
+    },
   ];
 
   for (const migration of migrations) {
@@ -1424,17 +1437,7 @@ async function ensureSubscription(shopId) {
     return;
   }
 
-  const defaultPlan = await pool.query(
-    `
-      SELECT id
-      FROM plans
-      WHERE name = $1
-      LIMIT 1
-    `,
-    [freePlanName],
-  );
-
-  const planId = defaultPlan.rows[0]?.id;
+  const planId = await getPlanIdByName(freePlanName);
 
   if (!planId) {
     throw new Error(`Default plan "${freePlanName}" was not found.`);
@@ -1458,6 +1461,8 @@ async function getPlanForShop(shopId) {
     });
   }
 
+  await reconcileSubscriptionForShop(shopId);
+
   const result = await pool.query(
     `
       SELECT
@@ -1467,7 +1472,9 @@ async function getPlanForShop(shopId) {
         plans.monthly_generation_limit,
         plans.price_cents,
         plans.is_active,
-        subscriptions.status
+        subscriptions.status,
+        subscriptions.current_period_start,
+        subscriptions.current_period_end
       FROM subscriptions
       JOIN plans ON plans.id = subscriptions.plan_id
       WHERE subscriptions.shop_id = $1
@@ -1484,6 +1491,81 @@ async function getPlanForShop(shopId) {
     ...buildFallbackFreePlan(),
     status: "active",
   });
+}
+
+async function getPlanIdByName(planName) {
+  if (!pool) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id
+      FROM plans
+      WHERE name = $1
+      LIMIT 1
+    `,
+    [planName],
+  );
+
+  return result.rows[0]?.id || null;
+}
+
+async function reconcileSubscriptionForShop(shopId) {
+  if (!pool) {
+    return;
+  }
+
+  const subscriptionResult = await pool.query(
+    `
+      SELECT
+        subscriptions.id,
+        subscriptions.shop_id,
+        subscriptions.plan_id,
+        subscriptions.current_period_end,
+        plans.price_cents
+      FROM subscriptions
+      JOIN plans ON plans.id = subscriptions.plan_id
+      WHERE subscriptions.shop_id = $1
+      LIMIT 1
+    `,
+    [shopId],
+  );
+
+  const subscription = subscriptionResult.rows[0];
+
+  if (!subscription) {
+    return;
+  }
+
+  const isPaidPlan = Number(subscription.price_cents || 0) > 0;
+  const hasEnded =
+    subscription.current_period_end &&
+    new Date(subscription.current_period_end).getTime() <= Date.now();
+
+  if (!isPaidPlan || !hasEnded) {
+    return;
+  }
+
+  const freePlanId = await getPlanIdByName(freePlanName);
+
+  if (!freePlanId) {
+    throw new Error(`Default plan "${freePlanName}" was not found.`);
+  }
+
+  await pool.query(
+    `
+      UPDATE subscriptions
+      SET
+        plan_id = $2,
+        status = 'active',
+        current_period_start = NOW(),
+        current_period_end = NULL,
+        updated_at = NOW()
+      WHERE shop_id = $1
+    `,
+    [shopId, freePlanId],
+  );
 }
 
 function buildFallbackFreePlan() {
@@ -1959,6 +2041,22 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
       throw new Error("Only pending requests can be approved.");
     }
 
+    const requestedPlanResult = await client.query(
+      `
+        SELECT price_cents
+        FROM plans
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [requestRow.requested_plan_id],
+    );
+
+    const requestedPlan = requestedPlanResult.rows[0];
+
+    if (!requestedPlan) {
+      throw new Error("Requested plan not found.");
+    }
+
     await client.query(
       `
         INSERT INTO subscriptions (
@@ -1969,16 +2067,30 @@ async function approvePlanRequest(requestId, adminNotes, resolvedBy) {
           current_period_end,
           updated_at
         )
-        VALUES ($1, $2, 'active', NOW(), NULL, NOW())
+        VALUES (
+          $1,
+          $2,
+          'active',
+          NOW(),
+          CASE
+            WHEN $3 > 0 THEN NOW() + INTERVAL '1 month'
+            ELSE NULL
+          END,
+          NOW()
+        )
         ON CONFLICT (shop_id)
         DO UPDATE SET
           plan_id = EXCLUDED.plan_id,
           status = 'active',
           current_period_start = NOW(),
-          current_period_end = NULL,
+          current_period_end = EXCLUDED.current_period_end,
           updated_at = NOW()
       `,
-      [requestRow.shop_id, requestRow.requested_plan_id],
+      [
+        requestRow.shop_id,
+        requestRow.requested_plan_id,
+        Number(requestedPlan.price_cents || 0),
+      ],
     );
 
     await client.query(

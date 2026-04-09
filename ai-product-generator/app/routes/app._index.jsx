@@ -477,6 +477,11 @@ export default function AppIndex() {
           {data.shopStatus?.plan?.description && (
             <s-paragraph>{data.shopStatus.plan.description}</s-paragraph>
           )}
+          {data.shopStatus?.plan?.current_period_end && (
+            <s-paragraph>
+              Plan access ends on {formatDateTime(data.shopStatus.plan.current_period_end)}.
+            </s-paragraph>
+          )}
           <s-paragraph>
             {data.shopStatus
               ? `Used ${data.shopStatus.usage?.count || 0} of ${data.shopStatus.plan?.monthly_generation_limit || 0} generations this month.`
@@ -1794,6 +1799,22 @@ function buildDescriptionHtml(data) {
         `<p><strong>${escapeHtml(item.question || "")}</strong><br/>${escapeHtml(item.answer || "")}</p>`,
     ),
   ].join("");
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "an unknown date";
+  }
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function stripHtml(value) {
