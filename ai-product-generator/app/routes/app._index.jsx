@@ -9,6 +9,11 @@ import {
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 
+const PAYMENT_INSTRUCTIONS_TEXT =
+  "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 936. After payment, submit your transaction reference and optional proof screenshot in the app.";
+const SUPPORT_CONTACT_TEXT =
+  "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com";
+
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const backend = getBackendConfig();
@@ -1018,17 +1023,11 @@ export default function AppIndex() {
             <div style={paymentNoticeStyle}>
               <strong>Payment destination</strong>
               <p style={paymentNoticeTextStyle}>
-                {data.paymentInstructions ||
-                  "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 936. After payment, submit your transaction reference and optional proof screenshot in the app."}
+                {PAYMENT_INSTRUCTIONS_TEXT}
               </p>
-              {(data.supportContact ||
-                "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com") && (
-                <p style={paymentNoticeTextStyle}>
-                  <strong>Confirmation contact:</strong>{" "}
-                  {data.supportContact ||
-                    "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com"}
-                </p>
-              )}
+              <p style={paymentNoticeTextStyle}>
+                <strong>Confirmation contact:</strong> {SUPPORT_CONTACT_TEXT}
+              </p>
             </div>
 
             <label htmlFor="contactName">Your name</label>
@@ -1109,14 +1108,11 @@ export default function AppIndex() {
 
       <s-section slot="aside" heading="Manual billing">
         <s-paragraph>
-          {data.paymentInstructions ||
-            "Add PAYMENT_INSTRUCTIONS in your Shopify app environment to show local payment guidance here."}
+          {PAYMENT_INSTRUCTIONS_TEXT}
         </s-paragraph>
-        {data.supportContact && (
-          <s-paragraph>
-            <strong>Contact:</strong> {data.supportContact}
-          </s-paragraph>
-        )}
+        <s-paragraph>
+          <strong>Contact:</strong> {SUPPORT_CONTACT_TEXT}
+        </s-paragraph>
         <s-paragraph>
           Choose a plan, complete your payment, and send your transaction
           reference so your upgrade can be reviewed and activated.
