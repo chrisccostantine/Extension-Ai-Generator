@@ -21,9 +21,9 @@ body {
 }
 
 .page {
-  max-width: 1200px;
+  max-width: 1060px;
   margin: 0 auto;
-  padding: 28px 20px 48px;
+  padding: 18px 16px 32px;
 }
 
 .hero {
@@ -47,6 +47,23 @@ h3,
 h4,
 p {
   margin-top: 0;
+  margin-bottom: 8px;
+}
+
+h1 {
+  font-size: 28px;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+h3 {
+  font-size: 17px;
+}
+
+h4 {
+  font-size: 15px;
 }
 
 .subtitle,
@@ -63,8 +80,8 @@ p {
 }
 
 .card {
-  padding: 18px;
-  margin-top: 16px;
+  padding: 12px;
+  margin-top: 12px;
 }
 
 .authCard {
@@ -73,24 +90,24 @@ p {
 
 .summaryGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 14px;
-  margin-top: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .metricCard {
-  padding: 18px;
+  padding: 12px;
 }
 
 .metricCard span {
   display: block;
   color: #b7c7ed;
-  font-size: 13px;
-  margin-bottom: 8px;
+  font-size: 12px;
+  margin-bottom: 4px;
 }
 
 .metricCard strong {
-  font-size: 32px;
+  font-size: 24px;
 }
 
 .topBar {
@@ -121,17 +138,17 @@ input,
 select,
 textarea {
   width: 100%;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid rgba(155, 179, 228, 0.28);
   background: #0d1526;
   color: var(--text);
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 button {
   border: none;
-  border-radius: 10px;
-  padding: 10px 14px;
+  border-radius: 8px;
+  padding: 8px 12px;
   cursor: pointer;
   background: var(--accent);
   color: #081127;
@@ -157,7 +174,7 @@ button.reject {
 .viewTabs {
   display: flex;
   gap: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .tabButton {
@@ -176,7 +193,7 @@ button.reject {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-end;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .panelFilters {
@@ -185,25 +202,28 @@ button.reject {
 
 .storesLayout {
   display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 14px;
+  grid-template-columns: 280px 1fr;
+  gap: 10px;
 }
 
 .storeList {
   display: grid;
-  gap: 10px;
-  max-height: 600px;
+  gap: 8px;
+  max-height: 520px;
   overflow: auto;
   padding-right: 4px;
+  align-content: start;
 }
 
 .storeListItem {
   text-align: left;
   display: grid;
-  gap: 4px;
+  gap: 2px;
   background: var(--card);
   border: 1px solid rgba(155, 179, 228, 0.2);
   color: var(--text);
+  padding: 8px 10px;
+  min-height: 72px;
 }
 
 .storeListItem.selected {
@@ -218,14 +238,15 @@ button.reject {
 .storeDomain,
 .storePlan {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .storeDetails {
   background: var(--card);
   border: 1px solid rgba(155, 179, 228, 0.2);
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 14px;
 }
 
 .emptyState {
@@ -244,31 +265,32 @@ button.reject {
 }
 
 .detailSection {
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid rgba(155, 179, 228, 0.18);
 }
 
 .requestList {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .requestCard {
-  padding: 16px;
-  border-radius: 12px;
+  padding: 12px;
+  border-radius: 10px;
   background: var(--card);
   border: 1px solid rgba(155, 179, 228, 0.18);
+  font-size: 14px;
 }
 
 .requestMeta {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   color: #d0dbf7;
-  font-size: 14px;
-  margin-bottom: 10px;
+  font-size: 13px;
+  margin-bottom: 8px;
 }
 
 .requestActions {
@@ -350,8 +372,9 @@ button.reject {
 
 .status {
   min-height: 20px;
-  margin-top: 14px;
+  margin-top: 10px;
   color: #d4deff;
+  font-size: 13px;
 }
 
 .hidden {
