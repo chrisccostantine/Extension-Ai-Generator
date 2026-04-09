@@ -171,63 +171,67 @@ function Extension() {
         <s-paragraph>{i18n.translate("description")}</s-paragraph>
         <s-box padding="base" borderWidth="base" borderRadius="base">
           <s-stack direction="block" gap="tight">
-            <label htmlFor="imageStylePreset">Style preset</label>
-            <select
+            <s-select
               id="imageStylePreset"
+              label="Style preset"
               value={stylePreset}
-              onChange={(event) => setStylePreset(event.target.value)}
+              onChange={(event) => setStylePreset(event.currentTarget.value)}
             >
-              <option value="clean-studio">Clean studio</option>
-              <option value="luxury-studio">Luxury studio</option>
-              <option value="white-background">White background</option>
-              <option value="soft-shadow">Soft shadow</option>
-              <option value="social-ready">Social ready</option>
-            </select>
+              <s-option value="clean-studio">Clean studio</s-option>
+              <s-option value="luxury-studio">Luxury studio</s-option>
+              <s-option value="white-background">White background</s-option>
+              <s-option value="soft-shadow">Soft shadow</s-option>
+              <s-option value="social-ready">Social ready</s-option>
+            </s-select>
 
-            <label htmlFor="imageOutputSize">Output size</label>
-            <select
+            <s-select
               id="imageOutputSize"
+              label="Output size"
               value={outputSize}
-              onChange={(event) => setOutputSize(event.target.value)}
+              onChange={(event) => setOutputSize(event.currentTarget.value)}
             >
-              <option value="1024x1024">Square</option>
-              <option value="1536x1024">Landscape</option>
-              <option value="1024x1536">Portrait</option>
-            </select>
+              <s-option value="1024x1024">Square</s-option>
+              <s-option value="1536x1024">Landscape</s-option>
+              <s-option value="1024x1536">Portrait</s-option>
+            </s-select>
 
-            <label htmlFor="imageBackgroundStyle">Background</label>
-            <select
+            <s-select
               id="imageBackgroundStyle"
+              label="Background"
               value={backgroundStyle}
-              onChange={(event) => setBackgroundStyle(event.target.value)}
+              onChange={(event) => setBackgroundStyle(event.currentTarget.value)}
             >
-              <option value="white">White</option>
-              <option value="soft-gray">Soft gray</option>
-              <option value="transparent">Transparent</option>
-            </select>
+              <s-option value="white">White</s-option>
+              <s-option value="soft-gray">Soft gray</s-option>
+              <s-option value="transparent">Transparent</s-option>
+            </s-select>
 
-            <label htmlFor="imageInstructions">Image instructions</label>
-            <textarea
+            <s-text-area
               id="imageInstructions"
+              label="Image instructions"
+              placeholder="Clean white background, preserve logo details, add soft natural shadow..."
               rows="4"
               value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
+              onChange={(event) => setInstructions(event.currentTarget.value)}
             />
 
-            <label htmlFor="productImages">Source images</label>
-            <input
+            <s-drop-zone
               id="productImages"
-              type="file"
+              label="Source images"
               accept="image/*"
               multiple
               onChange={(event) => {
-                const files = Array.from(event.target.files || []);
-                setSelectedFiles(files);
+                setSelectedFiles([...(event.currentTarget.files || [])]);
+              }}
+              onInput={(event) => {
+                setSelectedFiles([...(event.currentTarget.files || [])]);
               }}
             />
             {selectedFiles.length ? (
               <s-paragraph>{selectedFiles.length} source image(s) selected.</s-paragraph>
-            ) : null}
+            ) : (
+              <s-paragraph>Upload at least one source image before generating.</s-paragraph>
+            )}
           </s-stack>
         </s-box>
 
