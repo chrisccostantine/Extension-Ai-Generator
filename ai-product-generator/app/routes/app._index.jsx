@@ -181,6 +181,38 @@ export const action = async ({ request }) => {
         };
       }
 
+      const jobCreation = await backendRequest({
+        backend,
+        pathname: "/catalog-jobs",
+        method: "POST",
+        body: {
+          clientId,
+          jobType: "bulk_apply",
+          status: "queued",
+          mode: bulkGenerationInput.mode,
+          language: bulkGenerationInput.language,
+          scopeSummary: summarizeSelectedScope(bulkGenerationInput.previews),
+          totalProducts: bulkGenerationInput.previews.length,
+          processedProducts: 0,
+          failedProducts: 0,
+        },
+      });
+      const jobId = jobCreation.job?.id;
+
+      if (jobId) {
+        await backendRequest({
+          backend,
+          pathname: `/catalog-jobs/${jobId}/update`,
+          method: "POST",
+          body: {
+            clientId,
+            status: "running",
+            processedProducts: 0,
+            failedProducts: 0,
+          },
+        });
+      }
+
       let successCount = 0;
       const failedTitles = [];
 
@@ -194,24 +226,36 @@ export const action = async ({ request }) => {
         } catch (_error) {
           failedTitles.push(preview.title);
         }
+
+        if (jobId) {
+          await backendRequest({
+            backend,
+            pathname: `/catalog-jobs/${jobId}/update`,
+            method: "POST",
+            body: {
+              clientId,
+              status: "running",
+              processedProducts: successCount,
+              failedProducts: failedTitles.length,
+            },
+          });
+        }
       }
 
-      await backendRequest({
-        backend,
-        pathname: "/catalog-jobs",
-        method: "POST",
-        body: {
-          clientId,
-          jobType: "bulk_apply",
-          status: failedTitles.length ? "completed_with_issues" : "completed",
-          mode: bulkGenerationInput.mode,
-          language: bulkGenerationInput.language,
-          scopeSummary: summarizeSelectedScope(bulkGenerationInput.previews),
-          totalProducts: bulkGenerationInput.previews.length,
-          processedProducts: successCount,
-          failedProducts: failedTitles.length,
-        },
-      });
+      if (jobId) {
+        await backendRequest({
+          backend,
+          pathname: `/catalog-jobs/${jobId}/update`,
+          method: "POST",
+          body: {
+            clientId,
+            status: failedTitles.length ? "completed_with_issues" : "completed",
+            processedProducts: successCount,
+            failedProducts: failedTitles.length,
+            lastError: failedTitles.length ? `Failed: ${failedTitles.join(", ")}` : "",
+          },
+        });
+      }
 
       return {
         ok: successCount > 0,
@@ -239,7 +283,7 @@ export const action = async ({ request }) => {
         };
       }
 
-      await backendRequest({
+      const jobCreation = await backendRequest({
         backend,
         pathname: "/catalog-jobs",
         method: "POST",
@@ -255,6 +299,21 @@ export const action = async ({ request }) => {
           failedProducts: 0,
         },
       });
+      const jobId = jobCreation.job?.id;
+
+      if (jobId) {
+        await backendRequest({
+          backend,
+          pathname: `/catalog-jobs/${jobId}/update`,
+          method: "POST",
+          body: {
+            clientId,
+            status: "completed",
+            processedProducts: bulkGenerationInput.previews.length,
+            failedProducts: 0,
+          },
+        });
+      }
 
       return {
         ok: true,
@@ -303,6 +362,38 @@ export const action = async ({ request }) => {
         };
       }
 
+      const jobCreation = await backendRequest({
+        backend,
+        pathname: "/catalog-jobs",
+        method: "POST",
+        body: {
+          clientId,
+          jobType: "preview_apply",
+          status: "queued",
+          mode: previewsToApply[0]?.generated?.mode || "conversion",
+          language: previewsToApply[0]?.generated?.language || "English",
+          scopeSummary: summarizeSelectedScope(previewsToApply),
+          totalProducts: previewsToApply.length,
+          processedProducts: 0,
+          failedProducts: 0,
+        },
+      });
+      const jobId = jobCreation.job?.id;
+
+      if (jobId) {
+        await backendRequest({
+          backend,
+          pathname: `/catalog-jobs/${jobId}/update`,
+          method: "POST",
+          body: {
+            clientId,
+            status: "running",
+            processedProducts: 0,
+            failedProducts: 0,
+          },
+        });
+      }
+
       let successCount = 0;
       const failedTitles = [];
 
@@ -316,24 +407,36 @@ export const action = async ({ request }) => {
         } catch (_error) {
           failedTitles.push(preview.title);
         }
+
+        if (jobId) {
+          await backendRequest({
+            backend,
+            pathname: `/catalog-jobs/${jobId}/update`,
+            method: "POST",
+            body: {
+              clientId,
+              status: "running",
+              processedProducts: successCount,
+              failedProducts: failedTitles.length,
+            },
+          });
+        }
       }
 
-      await backendRequest({
-        backend,
-        pathname: "/catalog-jobs",
-        method: "POST",
-        body: {
-          clientId,
-          jobType: "preview_apply",
-          status: failedTitles.length ? "completed_with_issues" : "completed",
-          mode: previewsToApply[0]?.generated?.mode || "conversion",
-          language: previewsToApply[0]?.generated?.language || "English",
-          scopeSummary: summarizeSelectedScope(previewsToApply),
-          totalProducts: previewsToApply.length,
-          processedProducts: successCount,
-          failedProducts: failedTitles.length,
-        },
-      });
+      if (jobId) {
+        await backendRequest({
+          backend,
+          pathname: `/catalog-jobs/${jobId}/update`,
+          method: "POST",
+          body: {
+            clientId,
+            status: failedTitles.length ? "completed_with_issues" : "completed",
+            processedProducts: successCount,
+            failedProducts: failedTitles.length,
+            lastError: failedTitles.length ? `Failed: ${failedTitles.join(", ")}` : "",
+          },
+        });
+      }
 
       return {
         ok: successCount > 0,
@@ -1094,8 +1197,15 @@ export default function AppIndex() {
                   {job.processed_products}/{job.total_products} processed, {job.failed_products} failed
                 </p>
                 <p style={auditMetaStyle}>
-                  {capitalizePlanName(job.mode)} | {formatDateTime(job.created_at)}
+                  Progress: {formatJobProgress(job)} | {capitalizePlanName(job.mode)}
                 </p>
+                <p style={auditMetaStyle}>
+                  Started {formatDateTime(job.started_at || job.created_at)}
+                  {job.completed_at ? ` | Finished ${formatDateTime(job.completed_at)}` : ""}
+                </p>
+                {job.last_error ? (
+                  <p style={auditIssueStyle}>{job.last_error}</p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -1818,6 +1928,17 @@ function capitalizePlanName(value) {
 
 function formatCurrency(cents) {
   return (Number(cents || 0) / 100).toFixed(2);
+}
+
+function formatJobProgress(job) {
+  const total = Number(job?.total_products || 0);
+  const processed = Number(job?.processed_products || 0);
+
+  if (!total) {
+    return "0%";
+  }
+
+  return `${Math.min(100, Math.round((processed / total) * 100))}%`;
 }
 
 function summarizeSelectedScope(items) {

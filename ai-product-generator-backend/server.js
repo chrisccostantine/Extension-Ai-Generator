@@ -291,6 +291,7 @@ app.post("/catalog-jobs", async (req, res) => {
       totalProducts: Number(req.body?.totalProducts || 0),
       processedProducts: Number(req.body?.processedProducts || 0),
       failedProducts: Number(req.body?.failedProducts || 0),
+      lastError: sanitizeText(req.body?.lastError, 400),
     });
 
     return res.status(201).json({
@@ -301,6 +302,41 @@ app.post("/catalog-jobs", async (req, res) => {
     console.error("Failed to record catalog job:", error);
     return res.status(500).json({
       error: error?.message || "Failed to record catalog job.",
+    });
+  }
+});
+
+app.post("/catalog-jobs/:id/update", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const shop = await ensureShop(clientId);
+    const jobId = Number(req.params.id);
+
+    if (!Number.isInteger(jobId) || jobId <= 0) {
+      return res.status(400).json({ error: "Invalid catalog job id." });
+    }
+
+    const job = await updateCatalogJob({
+      shopId: shop.id,
+      jobId,
+      status: sanitizeText(req.body?.status, 80),
+      processedProducts: Number(req.body?.processedProducts || 0),
+      failedProducts: Number(req.body?.failedProducts || 0),
+      lastError: sanitizeText(req.body?.lastError, 400),
+    });
+
+    return res.json({
+      message: "Catalog job updated.",
+      job,
+    });
+  } catch (error) {
+    console.error("Failed to update catalog job:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to update catalog job.",
     });
   }
 });
@@ -736,6 +772,22 @@ app.get("/admin/api/subscriptions", async (req, res) => {
     console.error("Failed to load subscriptions:", error);
     return res.status(500).json({
       error: error?.message || "Failed to load subscriptions.",
+    });
+  }
+});
+
+app.get("/admin/api/catalog-jobs", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const jobs = await listAdminCatalogJobs();
+    return res.json({ jobs });
+  } catch (error) {
+    console.error("Failed to load admin catalog jobs:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load catalog jobs.",
     });
   }
 });
@@ -1347,9 +1399,25 @@ async function initializeDatabase() {
           total_products INTEGER NOT NULL DEFAULT 0,
           processed_products INTEGER NOT NULL DEFAULT 0,
           failed_products INTEGER NOT NULL DEFAULT 0,
+          started_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          last_error TEXT NOT NULL DEFAULT '',
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
+      `,
+    },
+    {
+      version: "011_catalog_job_progress",
+      sql: `
+        ALTER TABLE catalog_jobs
+        ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+
+        ALTER TABLE catalog_jobs
+        ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+
+        ALTER TABLE catalog_jobs
+        ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
       `,
     },
   ];
@@ -2190,6 +2258,7 @@ async function createCatalogJob({
   totalProducts,
   processedProducts,
   failedProducts,
+  lastError,
 }) {
   if (!pool) {
     return null;
@@ -2206,10 +2275,18 @@ async function createCatalogJob({
         scope_summary,
         total_products,
         processed_products,
-        failed_products
+        failed_products,
+        started_at,
+        completed_at,
+        last_error
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id, job_type, status, mode, language, scope_summary, total_products, processed_products, failed_products, created_at, updated_at
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9,
+        CASE WHEN $3 IN ('running', 'completed', 'completed_with_issues', 'failed') THEN NOW() ELSE NULL END,
+        CASE WHEN $3 IN ('completed', 'completed_with_issues', 'failed') THEN NOW() ELSE NULL END,
+        $10
+      )
+      RETURNING id, job_type, status, mode, language, scope_summary, total_products, processed_products, failed_products, started_at, completed_at, last_error, created_at, updated_at
     `,
     [
       shopId,
@@ -2221,10 +2298,59 @@ async function createCatalogJob({
       Math.max(0, Number(totalProducts || 0)),
       Math.max(0, Number(processedProducts || 0)),
       Math.max(0, Number(failedProducts || 0)),
+      lastError || "",
     ],
   );
 
   return result.rows[0] || null;
+}
+
+async function updateCatalogJob({
+  shopId,
+  jobId,
+  status,
+  processedProducts,
+  failedProducts,
+  lastError,
+}) {
+  if (!pool) {
+    return null;
+  }
+
+  const normalizedStatus = sanitizeText(status, 80) || "running";
+  const result = await pool.query(
+    `
+      UPDATE catalog_jobs
+      SET
+        status = $3,
+        processed_products = $4,
+        failed_products = $5,
+        started_at = COALESCE(started_at, NOW()),
+        completed_at = CASE
+          WHEN $3 IN ('completed', 'completed_with_issues', 'failed') THEN NOW()
+          ELSE completed_at
+        END,
+        last_error = $6,
+        updated_at = NOW()
+      WHERE id = $1
+        AND shop_id = $2
+      RETURNING id, job_type, status, mode, language, scope_summary, total_products, processed_products, failed_products, started_at, completed_at, last_error, created_at, updated_at
+    `,
+    [
+      jobId,
+      shopId,
+      normalizedStatus,
+      Math.max(0, Number(processedProducts || 0)),
+      Math.max(0, Number(failedProducts || 0)),
+      lastError || "",
+    ],
+  );
+
+  if (!result.rows[0]) {
+    throw new Error("Catalog job not found.");
+  }
+
+  return result.rows[0];
 }
 
 async function listCatalogJobsForShop(shopId) {
@@ -2244,6 +2370,9 @@ async function listCatalogJobsForShop(shopId) {
         total_products,
         processed_products,
         failed_products,
+        started_at,
+        completed_at,
+        last_error,
         created_at,
         updated_at
       FROM catalog_jobs
@@ -2572,6 +2701,41 @@ async function listAdminSubscriptions() {
         CASE WHEN plans.price_cents > 0 THEN 0 ELSE 1 END,
         subscriptions.current_period_end NULLS LAST,
         shops.display_name ASC
+    `,
+  );
+
+  return result.rows;
+}
+
+async function listAdminCatalogJobs() {
+  if (!pool) {
+    return [];
+  }
+
+  await reconcileExpiredSubscriptions();
+
+  const result = await pool.query(
+    `
+      SELECT
+        catalog_jobs.id,
+        catalog_jobs.job_type,
+        catalog_jobs.status,
+        catalog_jobs.mode,
+        catalog_jobs.language,
+        catalog_jobs.scope_summary,
+        catalog_jobs.total_products,
+        catalog_jobs.processed_products,
+        catalog_jobs.failed_products,
+        catalog_jobs.started_at,
+        catalog_jobs.completed_at,
+        catalog_jobs.last_error,
+        catalog_jobs.created_at,
+        shops.client_id,
+        shops.display_name
+      FROM catalog_jobs
+      JOIN shops ON shops.id = catalog_jobs.shop_id
+      ORDER BY catalog_jobs.created_at DESC
+      LIMIT 20
     `,
   );
 

@@ -8,6 +8,7 @@ const statusFilter = document.getElementById("statusFilter");
 const subscriptionSearchInput = document.getElementById("subscriptionSearch");
 const requestsList = document.getElementById("requestsList");
 const subscriptionsList = document.getElementById("subscriptionsList");
+const catalogJobsList = document.getElementById("catalogJobsList");
 const statusElement = document.getElementById("status");
 
 const pendingCountElement = document.getElementById("pendingCount");
@@ -44,6 +45,7 @@ logoutButton.addEventListener("click", () => {
   adminTokenInput.value = "";
   requestsList.innerHTML = "";
   subscriptionsList.innerHTML = "";
+  catalogJobsList.innerHTML = "";
   subscriptionSearchInput.value = "";
   setStatus("Logged out.");
 });
@@ -165,6 +167,7 @@ async function loadDashboard() {
 
     await loadRequests();
     await loadSubscriptions();
+    await loadCatalogJobs();
     setStatus("Dashboard updated.");
   } catch (error) {
     loginCard.classList.remove("hidden");
@@ -217,6 +220,28 @@ async function loadSubscriptions() {
   } catch (error) {
     subscriptionsList.innerHTML = "";
     setStatus(error.message || "Could not load subscriptions.");
+  }
+}
+
+async function loadCatalogJobs() {
+  const token = localStorage.getItem(STORAGE_KEY) || "";
+
+  try {
+    const response = await fetch("/admin/api/catalog-jobs", {
+      headers: {
+        "x-admin-token": token,
+      },
+    });
+    const data = await parseApiResponse(response);
+
+    if (!response.ok) {
+      throw new Error(data.error || "Could not load catalog jobs.");
+    }
+
+    renderCatalogJobs(data.jobs || []);
+  } catch (error) {
+    catalogJobsList.innerHTML = "";
+    setStatus(error.message || "Could not load catalog jobs.");
   }
 }
 
@@ -325,6 +350,38 @@ function renderSubscriptions(subscriptions) {
     .join("");
 }
 
+function renderCatalogJobs(jobs) {
+  if (!jobs.length) {
+    catalogJobsList.innerHTML =
+      "<p class='muted'>No catalog jobs recorded yet.</p>";
+    return;
+  }
+
+  catalogJobsList.innerHTML = jobs
+    .map(
+      (job) => `
+        <article class="requestCard">
+          <div class="requestMeta">
+            <div>
+              <span class="pill ${getJobPillClass(job)}">${escapeHtml(job.status || "queued")}</span>
+              <h3>${escapeHtml(job.display_name || job.client_id)}</h3>
+              <p class="muted">${escapeHtml(job.client_id || "")}</p>
+            </div>
+            <div>
+              <p><strong>${escapeHtml(job.job_type || "catalog job")}</strong></p>
+              <p class="muted">${escapeHtml(job.scope_summary || "Catalog job")}</p>
+            </div>
+          </div>
+          <p><strong>Progress:</strong> ${formatJobProgress(job)} | ${escapeHtml(job.processed_products || 0)} / ${escapeHtml(job.total_products || 0)} processed</p>
+          <p><strong>Mode:</strong> ${escapeHtml(job.mode || "conversion")} | <strong>Language:</strong> ${escapeHtml(job.language || "English")}</p>
+          <p><strong>Started:</strong> ${formatDate(job.started_at || job.created_at)}${job.completed_at ? ` | <strong>Finished:</strong> ${formatDate(job.completed_at)}` : ""}</p>
+          ${job.last_error ? `<p class="muted">${escapeHtml(job.last_error)}</p>` : ""}
+        </article>
+      `,
+    )
+    .join("");
+}
+
 function renderActions(requestId) {
   return `
     <form class="requestActionForm requestActions" data-request-id="${requestId}">
@@ -377,6 +434,19 @@ function escapeAttribute(value) {
 function getSubscriptionPillClass(subscription) {
   if (Number(subscription.price_cents || 0) > 0) {
     return "approved";
+  }
+
+  return "pending";
+}
+
+function getJobPillClass(job) {
+  const status = String(job?.status || "").trim().toLowerCase();
+  if (status === "completed") {
+    return "approved";
+  }
+
+  if (status === "completed_with_issues" || status === "failed") {
+    return "rejected";
   }
 
   return "pending";
@@ -452,6 +522,17 @@ function formatBillingInterval(value) {
   return String(value || "monthly").trim().toLowerCase() === "yearly"
     ? "Yearly billing"
     : "Monthly billing";
+}
+
+function formatJobProgress(job) {
+  const total = Number(job?.total_products || 0);
+  const processed = Number(job?.processed_products || 0);
+
+  if (!total) {
+    return "0%";
+  }
+
+  return `${Math.min(100, Math.round((processed / total) * 100))}%`;
 }
 
 function escapeHtml(value) {
