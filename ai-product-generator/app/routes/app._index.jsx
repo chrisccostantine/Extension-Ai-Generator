@@ -746,6 +746,12 @@ export default function AppIndex() {
               ? `Used ${data.shopStatus.usage?.count || 0} of ${data.shopStatus.plan?.monthly_generation_limit || 0} generations this month.`
               : data.backendError || "Backend is not connected yet."}
           </s-paragraph>
+          {Number(data.shopStatus?.plan?.monthly_image_limit || 0) > 0 && (
+            <s-paragraph>
+              Used {data.shopStatus?.imageUsage?.count || 0} of{" "}
+              {data.shopStatus?.plan?.monthly_image_limit || 0} image credits this month.
+            </s-paragraph>
+          )}
           {data.shopStatus?.latestRequest && (
             <s-paragraph>
               Latest request: {data.shopStatus.latestRequest.requested_plan_name} (
@@ -1281,6 +1287,12 @@ export default function AppIndex() {
           <s-paragraph>
             Upload raw product photos, describe the look you want, and generate website-ready ecommerce images for Shopify.
           </s-paragraph>
+          {Number(data.shopStatus?.plan?.monthly_image_limit || 0) > 0 && (
+            <s-paragraph>
+              Image credits used this month: {data.shopStatus?.imageUsage?.count || 0} /{" "}
+              {data.shopStatus?.plan?.monthly_image_limit || 0}
+            </s-paragraph>
+          )}
         </s-stack>
 
         {!planFeatures.imageGenerationEnabled ? (
@@ -1599,6 +1611,11 @@ export default function AppIndex() {
                         <p style={planMetaStyle}>
                           {plan.monthly_generation_limit.toLocaleString()} generations per month
                         </p>
+                        {Number(plan.monthly_image_limit || 0) > 0 && (
+                          <p style={planMetaStyle}>
+                            {plan.monthly_image_limit.toLocaleString()} image credits per month
+                          </p>
+                        )}
                         {isCurrentPlan && (
                           <p style={planCurrentBadgeStyle}>Current plan</p>
                         )}

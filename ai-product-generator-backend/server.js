@@ -202,6 +202,7 @@ app.get("/shop-status", async (req, res) => {
     const shop = await ensureShop(clientId);
     const plan = await getPlanForShop(shop.id);
     const usage = await getUsageForClient(clientId);
+    const imageUsage = await getImageUsageForShop(shop.id);
     const latestRequest = await getLatestPlanRequestForShop(shop.id);
     const profile = await getShopProfile(shop.id);
 
@@ -210,6 +211,7 @@ app.get("/shop-status", async (req, res) => {
       shop,
       plan,
       usage,
+      imageUsage,
       remaining: Math.max(plan.monthly_generation_limit - usage.count, 0),
       latestRequest,
       profile,
@@ -377,6 +379,7 @@ app.post("/generate-product-images", async (req, res) => {
     const clientId = normalizeClientId(req.body?.clientId);
     const shop = await ensureShop(clientId);
     const plan = await getPlanForShop(shop.id);
+    const imageUsage = await getImageUsageForShop(shop.id);
     const instructionText = sanitizeText(req.body?.instructionText, 1200);
     const stylePreset = sanitizeImageStylePreset(req.body?.stylePreset);
     const outputSize = sanitizeImageOutputSize(req.body?.outputSize);
@@ -386,6 +389,17 @@ app.post("/generate-product-images", async (req, res) => {
     if (!hasPlanFeature(plan, "imageGenerationEnabled")) {
       return res.status(403).json({
         error: "Upgrade to Growth or Scale to generate product images.",
+      });
+    }
+
+    if (imageUsage.count >= Number(plan.monthly_image_limit || 0)) {
+      return res.status(429).json({
+        error: "Monthly image generation limit reached for this shop.",
+        imageUsage: {
+          count: imageUsage.count,
+          limit: Number(plan.monthly_image_limit || 0),
+          period: imageUsage.period,
+        },
       });
     }
 
@@ -447,11 +461,21 @@ app.post("/generate-product-images", async (req, res) => {
       outputImages: generatedImages,
       lastError: "",
     });
+    await recordImageUsageEvent(
+      shop.id,
+      imageUsage.period,
+      `${stylePreset}:${sourceImages.length}`,
+    );
 
     return res.json({
       message: "Product images generated successfully.",
       job,
       images: generatedImages,
+      imageUsage: {
+        count: imageUsage.count + 1,
+        limit: Number(plan.monthly_image_limit || 0),
+        period: imageUsage.period,
+      },
     });
   } catch (error) {
     console.error("Failed to generate product images:", error);
@@ -1394,6 +1418,30 @@ async function getUsageForClient(clientId) {
   return { count: 0, period };
 }
 
+async function getImageUsageForShop(shopId) {
+  const period = getCurrentUsagePeriod();
+
+  if (!pool || !shopId) {
+    return { count: 0, period };
+  }
+
+  const result = await pool.query(
+    `
+      SELECT COUNT(*) AS count
+      FROM usage_events
+      WHERE shop_id = $1
+        AND usage_period = $2
+        AND event_type = 'image_generation'
+    `,
+    [shopId, period],
+  );
+
+  return {
+    count: Number(result.rows[0]?.count || 0),
+    period,
+  };
+}
+
 async function incrementUsage(shopId, clientId) {
   if (pool) {
     const period = getCurrentUsagePeriod();
@@ -1465,6 +1513,7 @@ async function initializeDatabase() {
           name TEXT NOT NULL UNIQUE,
           description TEXT NOT NULL DEFAULT '',
           monthly_generation_limit INTEGER NOT NULL,
+          monthly_image_limit INTEGER NOT NULL DEFAULT 0,
           price_cents INTEGER NOT NULL DEFAULT 0,
           yearly_price_cents INTEGER NOT NULL DEFAULT 0,
           is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1666,6 +1715,13 @@ async function initializeDatabase() {
         )
       `,
     },
+    {
+      version: "013_image_credits",
+      sql: `
+        ALTER TABLE plans
+        ADD COLUMN IF NOT EXISTS monthly_image_limit INTEGER NOT NULL DEFAULT 0
+      `,
+    },
   ];
 
   for (const migration of migrations) {
@@ -1711,7 +1767,7 @@ async function listPlans() {
 
   const result = await pool.query(
     `
-      SELECT id, name, description, monthly_generation_limit, price_cents, yearly_price_cents, is_active
+      SELECT id, name, description, monthly_generation_limit, monthly_image_limit, price_cents, yearly_price_cents, is_active
       FROM plans
       WHERE is_active = TRUE
       ORDER BY price_cents ASC, id ASC
@@ -1732,7 +1788,7 @@ async function getPlanByName(name) {
 
   const result = await pool.query(
     `
-      SELECT id, name, description, monthly_generation_limit, price_cents, yearly_price_cents, is_active
+      SELECT id, name, description, monthly_generation_limit, monthly_image_limit, price_cents, yearly_price_cents, is_active
       FROM plans
       WHERE name = $1
       LIMIT 1
@@ -1749,12 +1805,13 @@ async function seedPlans() {
   }
 
   await pool.query(`
-    INSERT INTO plans (name, description, monthly_generation_limit, price_cents, yearly_price_cents)
+    INSERT INTO plans (name, description, monthly_generation_limit, monthly_image_limit, price_cents, yearly_price_cents)
     VALUES
       (
         'free',
         '5 generations per month for trying the app. Includes single-product generation only. Bulk tools and saved presets are not included.',
         5,
+        0,
         0,
         0
       ),
@@ -1762,26 +1819,30 @@ async function seedPlans() {
         'starter',
         '300 generations per month for steady single-product work. Best for small catalogs that do not need bulk generation or saved presets yet.',
         300,
+        0,
         900,
         9000
       ),
       (
         'growth',
-        '1,000 generations per month with bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
+        '1,000 generations per month, 20 image credits, bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
         1000,
-        2400,
-        24000
+        20,
+        3900,
+        39000
       ),
       (
         'scale',
-        '3,000 generations per month with full access to bulk workflows, saved presets, multilingual generation, and advanced catalog optimization.',
+        '3,000 generations per month, 75 image credits, and full access to bulk workflows, saved presets, multilingual generation, image generation, and advanced catalog optimization.',
         3000,
-        4900,
-        49000
+        75,
+        7900,
+        79000
       )
     ON CONFLICT (name) DO UPDATE SET
       description = EXCLUDED.description,
       monthly_generation_limit = EXCLUDED.monthly_generation_limit,
+      monthly_image_limit = EXCLUDED.monthly_image_limit,
       price_cents = EXCLUDED.price_cents,
       yearly_price_cents = EXCLUDED.yearly_price_cents,
       is_active = TRUE,
@@ -2103,6 +2164,7 @@ function buildFallbackFreePlan() {
     description:
       "5 generations per month for trying the app. Includes single-product generation only. Bulk tools and saved presets are not included.",
     monthly_generation_limit: monthlyGenerationLimit,
+    monthly_image_limit: 0,
     price_cents: 0,
     yearly_price_cents: 0,
     billing_interval: "monthly",
@@ -2172,6 +2234,7 @@ function getPlanFeatureList(planName) {
   if (normalized === "growth") {
     return [
       "1,000 generations per month",
+      "20 image generations per month",
       "Bulk generation and preview",
       "Saved presets",
       "Multilingual generation",
@@ -2183,6 +2246,7 @@ function getPlanFeatureList(planName) {
   if (normalized === "scale") {
     return [
       "3,000 generations per month",
+      "75 image generations per month",
       "Bulk generation and preview",
       "Saved presets",
       "Multilingual generation",
@@ -2741,6 +2805,20 @@ async function recordUsageEvent(shopId, usagePeriod, productTitle) {
     `
       INSERT INTO usage_events (shop_id, usage_period, event_type, product_title)
       VALUES ($1, $2, 'generation', $3)
+    `,
+    [shopId, usagePeriod, productTitle],
+  );
+}
+
+async function recordImageUsageEvent(shopId, usagePeriod, productTitle) {
+  if (!pool || !shopId) {
+    return;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO usage_events (shop_id, usage_period, event_type, product_title)
+      VALUES ($1, $2, 'image_generation', $3)
     `,
     [shopId, usagePeriod, productTitle],
   );
