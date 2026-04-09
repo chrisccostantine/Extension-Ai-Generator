@@ -776,8 +776,6 @@ export default function AppIndex() {
   const currentBillingInterval = data.shopStatus?.plan?.billing_interval || "monthly";
   const presets = data.presets || [];
   const jobs = data.jobs || [];
-  const imageJobs = data.imageJobs || [];
-  const imageTargetProducts = data.audit?.recentProducts || [];
   const auditFilters = data.auditFilters || emptyAuditFilters;
   const planFeatures = data.shopStatus?.plan?.features || emptyPlanFeatures;
   const auditLoaded = Boolean(data.auditLoaded);
@@ -788,34 +786,8 @@ export default function AppIndex() {
   const auditItems = data.audit?.items || [];
   const previewItems =
     actionData?.intent === "preview-bulk-generate-audit" ? actionData.previews || [] : [];
-  const currentImageJobId =
-    actionData?.intent === "generate-image-assets"
-      ? String(actionData.generatedImageJobId || "")
-      : actionData?.intent === "save-generated-images-to-product"
-        ? String(actionData.imageJobId || "")
-        : "";
-  const generatedImagesFromAction =
-    actionData?.intent === "generate-image-assets" ||
-    actionData?.intent === "save-generated-images-to-product"
-      ? actionData.generatedImages || []
-      : [];
-  const generatedImages =
-    generatedImagesFromAction.length > 0
-      ? generatedImagesFromAction
-      : currentImageJobId
-        ? imageJobs.find((job) => String(job.id) === currentImageJobId)?.output_images || []
-        : [];
-  const selectedImageProductId =
-    actionData?.intent === "generate-image-assets" ||
-    actionData?.intent === "save-generated-images-to-product"
-      ? String(actionData.selectedImageProductId || "")
-      : "";
   const [billingInterval, setBillingInterval] = useState("monthly");
-  const [imageFormResetKey, setImageFormResetKey] = useState(0);
-  const [hideImageResults, setHideImageResults] = useState(false);
   const imageCreditsRemaining = getRemainingImageCredits(data.shopStatus);
-  const maxSelectableImageCount = Math.min(4, imageCreditsRemaining);
-  const imageCountOptions = buildImageCountOptions(maxSelectableImageCount);
   const onboardingChecklist = buildOnboardingChecklist({
     profile,
     presets,
@@ -1377,231 +1349,6 @@ export default function AppIndex() {
             </Form>
           </s-stack>
         ) : null}
-
-        <s-stack direction="block" gap="base">
-          <s-heading>Product image generator</s-heading>
-          <s-paragraph>
-            Generate images for one product, then save them immediately to that Shopify
-            product.
-          </s-paragraph>
-
-          {!planFeatures.imageGenerationEnabled ? (
-            <div style={getNoticeStyle(false)}>
-              Product image generation is available on the Growth and Scale plans.
-            </div>
-          ) : !imageTargetProducts.length ? (
-            <div style={getNoticeStyle(false)}>
-              No recent products available yet. Refresh status and try again.
-            </div>
-          ) : (
-            <>
-              <Form
-                key={`image-generation-form-${imageFormResetKey}`}
-                method="post"
-                action="?index"
-                encType="multipart/form-data"
-              >
-                <input type="hidden" name="intent" value="generate-image-assets" />
-                <div style={presetFormGridStyle}>
-                  <div>
-                    <label htmlFor="imageProductId">Product</label>
-                    <select
-                      id="imageProductId"
-                      name="imageProductId"
-                      style={inputStyle}
-                      defaultValue={selectedImageProductId || imageTargetProducts[0]?.id || ""}
-                    >
-                      {imageTargetProducts.map((product) => (
-                        <option key={product.id} value={product.id}>
-                          {product.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="imageStylePreset">Style preset</label>
-                    <select
-                      id="imageStylePreset"
-                      name="imageStylePreset"
-                      style={inputStyle}
-                      defaultValue="clean-studio"
-                    >
-                      <option value="clean-studio">Clean studio</option>
-                      <option value="luxury-studio">Luxury studio</option>
-                      <option value="white-background">White background</option>
-                      <option value="soft-shadow">Soft shadow</option>
-                      <option value="social-ready">Social ready</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="imageOutputSize">Output size</label>
-                    <select
-                      id="imageOutputSize"
-                      name="imageOutputSize"
-                      style={inputStyle}
-                      defaultValue="1024x1024"
-                    >
-                      <option value="1024x1024">Square</option>
-                      <option value="1536x1024">Landscape</option>
-                      <option value="1024x1536">Portrait</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="imageBackgroundStyle">Background</label>
-                    <select
-                      id="imageBackgroundStyle"
-                      name="imageBackgroundStyle"
-                      style={inputStyle}
-                      defaultValue="white"
-                    >
-                      <option value="white">White</option>
-                      <option value="soft-gray">Soft gray</option>
-                      <option value="transparent">Transparent</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="imageCount">Number of images</label>
-                    <select
-                      id="imageCount"
-                      name="imageCount"
-                      style={inputStyle}
-                      defaultValue="1"
-                      disabled={maxSelectableImageCount <= 0}
-                    >
-                      {imageCountOptions.map((count) => (
-                        <option key={`image-count-${count}`} value={String(count)}>
-                          {count} image{count === 1 ? "" : "s"}
-                        </option>
-                      ))}
-                      {!imageCountOptions.length ? (
-                        <option value="1">No image credits remaining</option>
-                      ) : null}
-                    </select>
-                  </div>
-                </div>
-
-                <label htmlFor="imageInstructions">Image instructions</label>
-                <textarea
-                  id="imageInstructions"
-                  name="imageInstructions"
-                  rows="4"
-                  placeholder="Example: Clean white background, preserve logo details, add a soft natural shadow, and make it look premium but realistic."
-                  style={inputStyle}
-                />
-
-                <label htmlFor="productImages">Product images</label>
-                <input
-                  id="productImages"
-                  name="productImages"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  style={inputStyle}
-                />
-
-                <s-button
-                  type="submit"
-                  variant="secondary"
-                  onClick={() => setHideImageResults(false)}
-                  disabled={maxSelectableImageCount <= 0}
-                >
-                  Generate product images
-                </s-button>
-              </Form>
-
-              {actionData?.message &&
-              (actionData.intent === "generate-image-assets" ||
-                actionData.intent === "save-generated-images-to-product") ? (
-                <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
-              ) : null}
-
-              {generatedImages.length && !hideImageResults ? (
-                <s-stack direction="block" gap="base">
-                  <div style={imageGridStyle}>
-                    {generatedImages.map((image) => (
-                      <div key={image.id} style={imageCardStyle}>
-                        <img
-                          src={image.dataUrl}
-                          alt="Generated product visual"
-                          style={imagePreviewStyle}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div style={bulkActionRowStyle}>
-                    <Form method="post" action="?index">
-                      <input
-                        type="hidden"
-                        name="intent"
-                        value="save-generated-images-to-product"
-                      />
-                      <input
-                        type="hidden"
-                        name="imageProductId"
-                        value={selectedImageProductId || imageTargetProducts[0]?.id || ""}
-                      />
-                      <input type="hidden" name="imageJobId" value={currentImageJobId} />
-                      <s-button
-                        type="submit"
-                        variant="secondary"
-                        disabled={!currentImageJobId}
-                      >
-                        Save images to product
-                      </s-button>
-                    </Form>
-                    <s-button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => {
-                        setImageFormResetKey((value) => value + 1);
-                        setHideImageResults(true);
-                      }}
-                    >
-                      Regenerate
-                    </s-button>
-                  </div>
-                </s-stack>
-              ) : null}
-            </>
-          )}
-        </s-stack>
-      </s-section>
-
-      <s-section heading="Catalog job history">
-        {jobs.length ? (
-          <div style={presetListStyle}>
-            {jobs.map((job) => (
-              <div key={job.id} style={presetCardStyle}>
-                <div style={presetCardHeaderStyle}>
-                  <strong>{capitalizePlanName(job.job_type)}</strong>
-                  <span style={presetTagStyle}>
-                    {capitalizePlanName(job.status)} | {job.language}
-                  </span>
-                </div>
-                <p style={presetDescriptionTextStyle}>
-                  {job.scope_summary || "Catalog job"}
-                </p>
-                <p style={auditMetaStyle}>
-                  {job.processed_products}/{job.total_products} processed, {job.failed_products} failed
-                </p>
-                <p style={auditMetaStyle}>
-                  Progress: {formatJobProgress(job)} | {capitalizePlanName(job.mode)}
-                </p>
-                <p style={auditMetaStyle}>
-                  Started {formatDateTime(job.started_at || job.created_at)}
-                  {job.completed_at ? ` | Finished ${formatDateTime(job.completed_at)}` : ""}
-                </p>
-                {job.last_error ? (
-                  <p style={auditIssueStyle}>{job.last_error}</p>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={getNoticeStyle(false)}>
-            No bulk job history yet. Your future previews and applies will appear here.
-          </div>
-        )}
       </s-section>
 
       <s-section
@@ -2419,26 +2166,6 @@ const auditScoreStyle = {
   fontWeight: 600,
 };
 
-const imageGridStyle = {
-  display: "grid",
-  gap: "12px",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-};
-
-const imageCardStyle = {
-  padding: "10px",
-  borderRadius: "12px",
-  border: "1px solid #d9dce1",
-  background: "#ffffff",
-};
-
-const imagePreviewStyle = {
-  display: "block",
-  width: "100%",
-  borderRadius: "10px",
-  objectFit: "cover",
-};
-
 function getNoticeStyle(isSuccess) {
   return {
     marginTop: "12px",
@@ -2506,17 +2233,6 @@ function getPlanFitSummary(planName) {
 
 function formatCurrency(cents) {
   return (Number(cents || 0) / 100).toFixed(2);
-}
-
-function formatJobProgress(job) {
-  const total = Number(job?.total_products || 0);
-  const processed = Number(job?.processed_products || 0);
-
-  if (!total) {
-    return "0%";
-  }
-
-  return `${Math.min(100, Math.round((processed / total) * 100))}%`;
 }
 
 function summarizeSelectedScope(items) {
@@ -2987,11 +2703,6 @@ function getRemainingImageCredits(shopStatus) {
   const limit = Number(shopStatus?.plan?.monthly_image_limit || 0);
   const used = Number(shopStatus?.imageUsage?.count || 0);
   return Math.max(0, limit - used);
-}
-
-function buildImageCountOptions(maxCount) {
-  const numericMax = Math.max(0, Number(maxCount || 0));
-  return Array.from({ length: numericMax }, (_, index) => index + 1);
 }
 
 function normalizeImageCount(value) {
