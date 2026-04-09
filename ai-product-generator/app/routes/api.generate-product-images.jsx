@@ -294,16 +294,96 @@ function guessMimeTypeFromFileName(name) {
 }
 
 async function addImagesToShopifyProduct(admin, { productId, images }) {
-  const mediaInputs = (images || [])
-    .filter((image) => Boolean(image?.dataUrl))
-    .map((image, index) => ({
-      mediaContentType: "IMAGE",
-      originalSource: image.dataUrl,
-      alt: image.alt || `Generated product image ${index + 1}`,
-    }));
+  const validImages = (images || []).filter((image) => Boolean(image?.dataUrl));
 
-  if (!mediaInputs.length) {
+  if (!validImages.length) {
     throw new Error("No generated images are available to save.");
+  }
+
+  const stagedInputs = validImages.map((image, index) => {
+    const parsed = parseImageDataUrl(image.dataUrl);
+    const extension = inferExtension(parsed.mimeType, "");
+
+    return {
+      filename: `generated-product-image-${Date.now()}-${index + 1}.${extension}`,
+      mimeType: parsed.mimeType,
+      fileSize: String(parsed.buffer.length),
+      httpMethod: "POST",
+      resource: "IMAGE",
+    };
+  });
+
+  const stagedResponse = await admin.graphql(
+    `#graphql
+      mutation StagedUploadsCreate($input: [StagedUploadInput!]!) {
+        stagedUploadsCreate(input: $input) {
+          stagedTargets {
+            url
+            resourceUrl
+            parameters {
+              name
+              value
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      variables: {
+        input: stagedInputs,
+      },
+    },
+  );
+  const stagedPayload = await stagedResponse.json();
+  const stagedErrors = stagedPayload?.data?.stagedUploadsCreate?.userErrors || [];
+
+  if (stagedErrors.length > 0) {
+    throw new Error(stagedErrors[0]?.message || "Could not prepare image upload.");
+  }
+
+  const stagedTargets = stagedPayload?.data?.stagedUploadsCreate?.stagedTargets || [];
+
+  if (stagedTargets.length !== validImages.length) {
+    throw new Error("Could not prepare all generated images for upload.");
+  }
+
+  const uploadedMedia = [];
+
+  for (let index = 0; index < validImages.length; index += 1) {
+    const image = validImages[index];
+    const target = stagedTargets[index];
+    const parsed = parseImageDataUrl(image.dataUrl);
+
+    const uploadFormData = new FormData();
+    for (const parameter of target.parameters || []) {
+      uploadFormData.append(parameter.name, parameter.value);
+    }
+
+    const fileName = stagedInputs[index].filename;
+    uploadFormData.append(
+      "file",
+      new Blob([parsed.buffer], { type: parsed.mimeType }),
+      fileName,
+    );
+
+    const uploadResponse = await fetch(target.url, {
+      method: "POST",
+      body: uploadFormData,
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error("Could not upload generated image to Shopify.");
+    }
+
+    uploadedMedia.push({
+      mediaContentType: "IMAGE",
+      originalSource: target.resourceUrl,
+      alt: image.alt || `Generated product image ${index + 1}`,
+    });
   }
 
   const response = await admin.graphql(
@@ -320,7 +400,7 @@ async function addImagesToShopifyProduct(admin, { productId, images }) {
     {
       variables: {
         productId,
-        media: mediaInputs,
+        media: uploadedMedia,
       },
     },
   );
@@ -330,4 +410,23 @@ async function addImagesToShopifyProduct(admin, { productId, images }) {
   if (mediaUserErrors.length > 0) {
     throw new Error(mediaUserErrors[0]?.message || "Shopify rejected the generated images.");
   }
+}
+
+function parseImageDataUrl(dataUrl) {
+  const value = String(dataUrl || "").trim();
+  const match = value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+
+  if (!match) {
+    throw new Error("Generated image format is invalid.");
+  }
+
+  const mimeType = match[1];
+  const base64Payload = match[2];
+  const buffer = Buffer.from(base64Payload, "base64");
+
+  if (!buffer.length) {
+    throw new Error("Generated image is empty.");
+  }
+
+  return { mimeType, buffer };
 }
