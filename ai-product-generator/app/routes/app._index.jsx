@@ -19,8 +19,8 @@ const PAYMENT_METHOD_OPTIONS = [
   "BOB Finance",
   "Bank Audi Neo",
 ];
-const BACKEND_REQUEST_TIMEOUT_MS = 8000;
-const LOADER_AUDIT_TIMEOUT_MS = 6000;
+const BACKEND_REQUEST_TIMEOUT_MS = 2500;
+const LOADER_AUDIT_TIMEOUT_MS = 2500;
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -49,7 +49,7 @@ export const loader = async ({ request }) => {
   }
 
   try {
-    const [shopStatus, plansPayload] = await Promise.all([
+    const [shopStatusResult, plansResult] = await Promise.allSettled([
       backendRequest({
         backend,
         pathname: "/shop-status",
@@ -62,6 +62,10 @@ export const loader = async ({ request }) => {
         method: "GET",
       }),
     ]);
+    const shopStatus =
+      shopStatusResult.status === "fulfilled" ? shopStatusResult.value : null;
+    const plansPayload =
+      plansResult.status === "fulfilled" ? plansResult.value : { plans: [] };
     const [jobsResult, imageJobsResult, presetsResult] = await Promise.allSettled([
       backendRequest({
         backend,
@@ -86,7 +90,12 @@ export const loader = async ({ request }) => {
     ]);
 
     return {
-      backendConfigured: true,
+      backendConfigured:
+        shopStatusResult.status === "fulfilled" || plansResult.status === "fulfilled",
+      backendError:
+        shopStatusResult.status === "rejected" && plansResult.status === "rejected"
+          ? "Backend is temporarily unavailable."
+          : "",
       shopDomain: session.shop,
       clientId,
       shopStatus,
