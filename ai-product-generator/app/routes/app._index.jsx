@@ -855,10 +855,11 @@ export default function AppIndex() {
   });
 
   return (
-    <s-page heading="AI Product Generator">
+    <s-page heading="AI Product Generator" suppressHydrationWarning>
       <s-button
         slot="primary-action"
-        variant="secondary"
+        variant="primary"
+        suppressHydrationWarning
         onClick={() => revalidator.revalidate()}
       >
         Refresh status
