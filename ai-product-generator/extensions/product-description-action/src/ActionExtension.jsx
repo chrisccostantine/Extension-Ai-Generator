@@ -13,6 +13,9 @@ function Extension() {
   const [generated, setGenerated] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState("rewrite");
+  const [language, setLanguage] = useState("English");
+  const [target, setTarget] = useState("full");
 
   useEffect(() => {
     if (!selectedProductId) {
@@ -82,7 +85,12 @@ function Extension() {
     setMessage("");
 
     try {
-      const query = new URLSearchParams({ productId: selectedProductId });
+      const query = new URLSearchParams({
+        productId: selectedProductId,
+        mode,
+        language,
+        target,
+      });
       const response = await fetch(`/api/generate-product-description?${query.toString()}`);
       const payload = await response.json().catch(() => ({}));
 
@@ -113,6 +121,42 @@ function Extension() {
             : i18n.translate("loadingProduct")}
         </s-paragraph>
         <s-paragraph>{i18n.translate("description")}</s-paragraph>
+        <s-box padding="base" borderWidth="base" borderRadius="base">
+          <s-stack direction="block" gap="tight">
+            <label htmlFor="mode">Mode</label>
+            <select id="mode" value={mode} onChange={(event) => setMode(event.target.value)}>
+              <option value="rewrite">Rewrite</option>
+              <option value="conversion">Conversion</option>
+              <option value="seo">SEO</option>
+              <option value="technical">Technical</option>
+              <option value="benefits">Benefits</option>
+              <option value="luxury">Luxury</option>
+              <option value="mobile">Mobile</option>
+            </select>
+
+            <label htmlFor="language">Language</label>
+            <select
+              id="language"
+              value={language}
+              onChange={(event) => setLanguage(event.target.value)}
+            >
+              <option value="English">English</option>
+              <option value="Arabic">Arabic</option>
+              <option value="French">French</option>
+            </select>
+
+            <label htmlFor="target">Update target</label>
+            <select
+              id="target"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+            >
+              <option value="full">Description + SEO</option>
+              <option value="description">Description only</option>
+              <option value="seo">SEO only</option>
+            </select>
+          </s-stack>
+        </s-box>
         {message ? <s-paragraph>{message}</s-paragraph> : null}
         {summary ? (
           <s-box padding="base" borderWidth="base" borderRadius="base">

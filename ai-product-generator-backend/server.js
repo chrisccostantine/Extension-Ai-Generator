@@ -237,6 +237,10 @@ app.post("/shop-profile", async (req, res) => {
       targetAudience: sanitizeText(req.body?.targetAudience, 160),
       descriptionStyle: sanitizeText(req.body?.descriptionStyle, 120),
       brandGuidelines: sanitizeText(req.body?.brandGuidelines, 2000),
+      defaultLanguage: sanitizeText(req.body?.defaultLanguage, 80) || "English",
+      bannedWords: sanitizeText(req.body?.bannedWords, 500),
+      preferredKeywords: sanitizeText(req.body?.preferredKeywords, 500),
+      brandExampleCopy: sanitizeText(req.body?.brandExampleCopy, 4000),
     });
 
     return res.json({
@@ -247,6 +251,56 @@ app.post("/shop-profile", async (req, res) => {
     console.error("Failed to save shop profile:", error);
     return res.status(500).json({
       error: error?.message || "Failed to save the shop profile.",
+    });
+  }
+});
+
+app.get("/catalog-jobs", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.query.clientId);
+    const shop = await ensureShop(clientId);
+    const jobs = await listCatalogJobsForShop(shop.id);
+    return res.json({ jobs });
+  } catch (error) {
+    console.error("Failed to load catalog jobs:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load catalog jobs.",
+    });
+  }
+});
+
+app.post("/catalog-jobs", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const shop = await ensureShop(clientId);
+    const job = await createCatalogJob({
+      shopId: shop.id,
+      jobType: sanitizeText(req.body?.jobType, 80) || "bulk_apply",
+      status: sanitizeText(req.body?.status, 80) || "completed",
+      mode: normalizeGenerationMode(req.body?.mode),
+      language: normalizeGenerationLanguage(req.body?.language),
+      scopeSummary: sanitizeText(req.body?.scopeSummary, 200),
+      totalProducts: Number(req.body?.totalProducts || 0),
+      processedProducts: Number(req.body?.processedProducts || 0),
+      failedProducts: Number(req.body?.failedProducts || 0),
+    });
+
+    return res.status(201).json({
+      message: "Catalog job recorded.",
+      job,
+    });
+  } catch (error) {
+    console.error("Failed to record catalog job:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to record catalog job.",
     });
   }
 });
@@ -633,14 +687,16 @@ app.get("/admin/api/dashboard", async (req, res) => {
   }
 
   try {
-    const [summary, requests] = await Promise.all([
+    const [summary, requests, plans] = await Promise.all([
       getAdminSummary(),
       listPlanRequests("pending"),
+      listPlans(),
     ]);
 
     return res.json({
       summary,
       pendingRequests: requests,
+      plans,
       paymentInstructions,
       supportContact,
     });
@@ -680,6 +736,42 @@ app.get("/admin/api/subscriptions", async (req, res) => {
     console.error("Failed to load subscriptions:", error);
     return res.status(500).json({
       error: error?.message || "Failed to load subscriptions.",
+    });
+  }
+});
+
+app.post("/admin/api/subscriptions/:shopId/override", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const shopId = Number(req.params.shopId);
+    const planName = sanitizeText(req.body?.planName, 80).toLowerCase();
+    const billingInterval = normalizeBillingInterval(req.body?.billingInterval);
+
+    if (!Number.isInteger(shopId) || shopId <= 0) {
+      return res.status(400).json({ error: "Invalid shop id." });
+    }
+
+    if (!planName) {
+      return res.status(400).json({ error: "Plan name is required." });
+    }
+
+    const subscription = await overrideSubscriptionForShop({
+      shopId,
+      planName,
+      billingInterval,
+    });
+
+    return res.json({
+      message: "Subscription updated successfully.",
+      subscription,
+    });
+  } catch (error) {
+    console.error("Failed to override subscription:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to override the subscription.",
     });
   }
 });
@@ -897,6 +989,7 @@ function buildGenerationSystemPrompt({
     "metaDescription must stay under 155 characters when possible.",
     "subtitle must be a short merchandising line.",
     "faq must be an array of exactly 3 objects with question and answer keys.",
+    "Avoid filler, repetition, and vague claims.",
     presetInstructions
       ? `Additional preset instructions: ${presetInstructions}`
       : "",
@@ -922,7 +1015,11 @@ function buildGenerationUserPrompt({
     `- Brand tone: ${profile.brand_tone || "premium, modern"}`,
     `- Target audience: ${profile.target_audience || "broad online shoppers"}`,
     `- Description style: ${profile.description_style || "benefits-first"}`,
+    `- Default language: ${profile.default_language || "English"}`,
     `- Brand guidelines: ${profile.brand_guidelines || "Keep it clean, polished, customer-facing, and specific to the product."}`,
+    `- Preferred keywords: ${profile.preferred_keywords || "None provided"}`,
+    `- Words to avoid: ${profile.banned_words || "None provided"}`,
+    `- Example brand copy: ${profile.brand_example_copy || "None provided"}`,
     presetInstructions
       ? `Saved preset instructions: ${presetInstructions}`
       : "Saved preset instructions:\nNone provided.",
@@ -1222,6 +1319,37 @@ async function initializeDatabase() {
 
         ALTER TABLE plan_requests
         ADD COLUMN IF NOT EXISTS billing_interval TEXT NOT NULL DEFAULT 'monthly';
+      `,
+    },
+    {
+      version: "010_enhanced_profiles_jobs",
+      sql: `
+        ALTER TABLE shop_profiles
+        ADD COLUMN IF NOT EXISTS default_language TEXT NOT NULL DEFAULT 'English';
+
+        ALTER TABLE shop_profiles
+        ADD COLUMN IF NOT EXISTS banned_words TEXT NOT NULL DEFAULT '';
+
+        ALTER TABLE shop_profiles
+        ADD COLUMN IF NOT EXISTS preferred_keywords TEXT NOT NULL DEFAULT '';
+
+        ALTER TABLE shop_profiles
+        ADD COLUMN IF NOT EXISTS brand_example_copy TEXT NOT NULL DEFAULT '';
+
+        CREATE TABLE IF NOT EXISTS catalog_jobs (
+          id SERIAL PRIMARY KEY,
+          shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+          job_type TEXT NOT NULL DEFAULT 'bulk_apply',
+          status TEXT NOT NULL DEFAULT 'completed',
+          mode TEXT NOT NULL DEFAULT 'conversion',
+          language TEXT NOT NULL DEFAULT 'English',
+          scope_summary TEXT NOT NULL DEFAULT '',
+          total_products INTEGER NOT NULL DEFAULT 0,
+          processed_products INTEGER NOT NULL DEFAULT 0,
+          failed_products INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
       `,
     },
   ];
@@ -1790,6 +1918,10 @@ async function getShopProfile(shopId) {
     target_audience: "",
     description_style: "",
     brand_guidelines: "",
+    default_language: "English",
+    banned_words: "",
+    preferred_keywords: "",
+    brand_example_copy: "",
   };
 
   if (!pool || !shopId) {
@@ -1803,7 +1935,11 @@ async function getShopProfile(shopId) {
         brand_tone,
         target_audience,
         description_style,
-        brand_guidelines
+        brand_guidelines,
+        default_language,
+        banned_words,
+        preferred_keywords,
+        brand_example_copy
       FROM shop_profiles
       WHERE shop_id = $1
       LIMIT 1
@@ -1831,26 +1967,38 @@ async function upsertShopProfile(shopId, profile) {
         shop_id,
         business_type,
         brand_tone,
-        target_audience,
-        description_style,
-        brand_guidelines
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (shop_id)
-      DO UPDATE SET
-        business_type = EXCLUDED.business_type,
-        brand_tone = EXCLUDED.brand_tone,
-        target_audience = EXCLUDED.target_audience,
-        description_style = EXCLUDED.description_style,
-        brand_guidelines = EXCLUDED.brand_guidelines,
-        updated_at = NOW()
-      RETURNING
-        business_type,
-        brand_tone,
-        target_audience,
-        description_style,
-        brand_guidelines
-    `,
+      target_audience,
+      description_style,
+      brand_guidelines,
+      default_language,
+      banned_words,
+      preferred_keywords,
+      brand_example_copy
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (shop_id)
+    DO UPDATE SET
+      business_type = EXCLUDED.business_type,
+      brand_tone = EXCLUDED.brand_tone,
+      target_audience = EXCLUDED.target_audience,
+      description_style = EXCLUDED.description_style,
+      brand_guidelines = EXCLUDED.brand_guidelines,
+      default_language = EXCLUDED.default_language,
+      banned_words = EXCLUDED.banned_words,
+      preferred_keywords = EXCLUDED.preferred_keywords,
+      brand_example_copy = EXCLUDED.brand_example_copy,
+      updated_at = NOW()
+    RETURNING
+      business_type,
+      brand_tone,
+      target_audience,
+      description_style,
+      brand_guidelines,
+      default_language,
+      banned_words,
+      preferred_keywords,
+      brand_example_copy
+  `,
     [
       shopId,
       profile.businessType || "",
@@ -1858,6 +2006,10 @@ async function upsertShopProfile(shopId, profile) {
       profile.targetAudience || "",
       profile.descriptionStyle || "",
       profile.brandGuidelines || "",
+      profile.defaultLanguage || "English",
+      profile.bannedWords || "",
+      profile.preferredKeywords || "",
+      profile.brandExampleCopy || "",
     ],
   );
 
@@ -2026,6 +2178,83 @@ async function createPlanRequest({
   );
 
   return result.rows[0];
+}
+
+async function createCatalogJob({
+  shopId,
+  jobType,
+  status,
+  mode,
+  language,
+  scopeSummary,
+  totalProducts,
+  processedProducts,
+  failedProducts,
+}) {
+  if (!pool) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      INSERT INTO catalog_jobs (
+        shop_id,
+        job_type,
+        status,
+        mode,
+        language,
+        scope_summary,
+        total_products,
+        processed_products,
+        failed_products
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, job_type, status, mode, language, scope_summary, total_products, processed_products, failed_products, created_at, updated_at
+    `,
+    [
+      shopId,
+      jobType,
+      status,
+      mode,
+      language,
+      scopeSummary || "",
+      Math.max(0, Number(totalProducts || 0)),
+      Math.max(0, Number(processedProducts || 0)),
+      Math.max(0, Number(failedProducts || 0)),
+    ],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function listCatalogJobsForShop(shopId) {
+  if (!pool) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        job_type,
+        status,
+        mode,
+        language,
+        scope_summary,
+        total_products,
+        processed_products,
+        failed_products,
+        created_at,
+        updated_at
+      FROM catalog_jobs
+      WHERE shop_id = $1
+      ORDER BY created_at DESC
+      LIMIT 10
+    `,
+    [shopId],
+  );
+
+  return result.rows;
 }
 
 async function recordUsageEvent(shopId, usagePeriod, productTitle) {
@@ -2347,4 +2576,61 @@ async function listAdminSubscriptions() {
   );
 
   return result.rows;
+}
+
+async function overrideSubscriptionForShop({ shopId, planName, billingInterval }) {
+  if (!pool) {
+    throw new Error("Admin override requires a database connection.");
+  }
+
+  const plan = await getPlanByName(planName);
+
+  if (!plan || !plan.is_active) {
+    throw new Error("Requested override plan was not found.");
+  }
+
+  const normalizedInterval = normalizeBillingInterval(billingInterval);
+  const paidAmount =
+    normalizedInterval === "yearly"
+      ? Number(plan.yearly_price_cents || 0)
+      : Number(plan.price_cents || 0);
+
+  await pool.query(
+    `
+      INSERT INTO subscriptions (
+        shop_id,
+        plan_id,
+        status,
+        billing_interval,
+        current_period_start,
+        current_period_end,
+        updated_at
+      )
+      VALUES (
+        $1,
+        $2,
+        'active',
+        $3,
+        NOW(),
+        CASE
+          WHEN $4 > 0 AND $3 = 'yearly' THEN NOW() + INTERVAL '1 year'
+          WHEN $4 > 0 THEN NOW() + INTERVAL '1 month'
+          ELSE NULL
+        END,
+        NOW()
+      )
+      ON CONFLICT (shop_id)
+      DO UPDATE SET
+        plan_id = EXCLUDED.plan_id,
+        status = 'active',
+        billing_interval = EXCLUDED.billing_interval,
+        current_period_start = NOW(),
+        current_period_end = EXCLUDED.current_period_end,
+        updated_at = NOW()
+    `,
+    [shopId, plan.id, normalizedInterval, paidAmount],
+  );
+
+  const subscriptions = await listAdminSubscriptions();
+  return subscriptions.find((subscription) => subscription.shop_id === shopId) || null;
 }

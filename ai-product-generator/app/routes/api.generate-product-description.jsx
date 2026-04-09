@@ -17,6 +17,9 @@ export const loader = async ({ request }) => {
   try {
     const url = new URL(request.url);
     const productId = String(url.searchParams.get("productId") || "").trim();
+    const mode = normalizeMode(url.searchParams.get("mode"));
+    const language = String(url.searchParams.get("language") || "English").trim() || "English";
+    const target = normalizeTarget(url.searchParams.get("target"));
 
     if (!productId) {
       return cors(
@@ -30,6 +33,7 @@ export const loader = async ({ request }) => {
           product(id: $id) {
             id
             title
+            descriptionHtml
           }
         }
       `,
@@ -53,8 +57,24 @@ export const loader = async ({ request }) => {
       title: product.title,
       clientId,
       existingDescription: stripHtml(product.descriptionHtml || ""),
+      mode,
+      language,
     });
     const descriptionHtml = buildDescriptionHtml(generated);
+    const productUpdateInput = {
+      id: productId,
+    };
+
+    if (target !== "seo") {
+      productUpdateInput.descriptionHtml = descriptionHtml;
+    }
+
+    if (target !== "description") {
+      productUpdateInput.seo = {
+        title: generated.metaTitle,
+        description: generated.metaDescription,
+      };
+    }
 
     const updateResponse = await admin.graphql(
       `#graphql
@@ -75,12 +95,7 @@ export const loader = async ({ request }) => {
       {
         variables: {
           product: {
-            id: productId,
-            descriptionHtml,
-            seo: {
-              title: generated.metaTitle,
-              description: generated.metaDescription,
-            },
+            ...productUpdateInput,
           },
         },
       },
@@ -110,6 +125,9 @@ export const loader = async ({ request }) => {
         metaDescription: generated.metaDescription,
         subtitle: generated.subtitle,
         faq: generated.faq,
+        mode,
+        language,
+        target,
       }),
     );
   } catch (error) {
@@ -143,6 +161,8 @@ async function fetchBackendGeneratedContent({
   title,
   clientId,
   existingDescription,
+  mode,
+  language,
 }) {
   const response = await fetch(`${backend.baseUrl}/generate-product-content`, {
     method: "POST",
@@ -155,8 +175,8 @@ async function fetchBackendGeneratedContent({
     body: JSON.stringify({
       title,
       clientId,
-      mode: "rewrite",
-      language: "English",
+      mode,
+      language,
       existingDescription,
     }),
   });
@@ -200,4 +220,31 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function normalizeMode(value) {
+  const supported = new Set([
+    "conversion",
+    "luxury",
+    "seo",
+    "technical",
+    "benefits",
+    "mobile",
+    "rewrite",
+  ]);
+  const normalized = String(value || "").trim().toLowerCase();
+  return supported.has(normalized) ? normalized : "rewrite";
+}
+
+function normalizeTarget(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "seo") {
+    return "seo";
+  }
+
+  if (normalized === "description") {
+    return "description";
+  }
+
+  return "full";
 }

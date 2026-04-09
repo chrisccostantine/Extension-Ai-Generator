@@ -56,6 +56,12 @@ export const loader = async ({ request }) => {
         method: "GET",
       }),
     ]);
+    const jobsPayload = await backendRequest({
+      backend,
+      pathname: "/catalog-jobs",
+      method: "GET",
+      clientId,
+    });
     const presetsPayload = shopStatus?.plan?.features?.presetsEnabled
       ? await backendRequest({
           backend,
@@ -76,6 +82,7 @@ export const loader = async ({ request }) => {
       audit,
       auditFilters,
       presets: presetsPayload.presets || [],
+      jobs: jobsPayload.jobs || [],
     };
   } catch (error) {
     return {
@@ -90,6 +97,7 @@ export const loader = async ({ request }) => {
       audit,
       auditFilters,
       presets: [],
+      jobs: [],
     };
   }
 };
@@ -123,6 +131,14 @@ export const action = async ({ request }) => {
       const brandGuidelines = String(
         formData.get("brandGuidelines") || "",
       ).trim();
+      const defaultLanguage = String(formData.get("defaultLanguage") || "").trim();
+      const preferredKeywords = String(
+        formData.get("preferredKeywords") || "",
+      ).trim();
+      const bannedWords = String(formData.get("bannedWords") || "").trim();
+      const brandExampleCopy = String(
+        formData.get("brandExampleCopy") || "",
+      ).trim();
 
       const result = await backendRequest({
         backend,
@@ -135,6 +151,10 @@ export const action = async ({ request }) => {
           targetAudience,
           descriptionStyle,
           brandGuidelines,
+          defaultLanguage,
+          preferredKeywords,
+          bannedWords,
+          brandExampleCopy,
         },
       });
 
@@ -176,6 +196,23 @@ export const action = async ({ request }) => {
         }
       }
 
+      await backendRequest({
+        backend,
+        pathname: "/catalog-jobs",
+        method: "POST",
+        body: {
+          clientId,
+          jobType: "bulk_apply",
+          status: failedTitles.length ? "completed_with_issues" : "completed",
+          mode: bulkGenerationInput.mode,
+          language: bulkGenerationInput.language,
+          scopeSummary: summarizeSelectedScope(bulkGenerationInput.previews),
+          totalProducts: bulkGenerationInput.previews.length,
+          processedProducts: successCount,
+          failedProducts: failedTitles.length,
+        },
+      });
+
       return {
         ok: successCount > 0,
         intent,
@@ -201,6 +238,23 @@ export const action = async ({ request }) => {
           message: bulkGenerationInput.errorMessage,
         };
       }
+
+      await backendRequest({
+        backend,
+        pathname: "/catalog-jobs",
+        method: "POST",
+        body: {
+          clientId,
+          jobType: "preview_generate",
+          status: "preview_ready",
+          mode: bulkGenerationInput.mode,
+          language: bulkGenerationInput.language,
+          scopeSummary: summarizeSelectedScope(bulkGenerationInput.previews),
+          totalProducts: bulkGenerationInput.previews.length,
+          processedProducts: bulkGenerationInput.previews.length,
+          failedProducts: 0,
+        },
+      });
 
       return {
         ok: true,
@@ -263,6 +317,23 @@ export const action = async ({ request }) => {
           failedTitles.push(preview.title);
         }
       }
+
+      await backendRequest({
+        backend,
+        pathname: "/catalog-jobs",
+        method: "POST",
+        body: {
+          clientId,
+          jobType: "preview_apply",
+          status: failedTitles.length ? "completed_with_issues" : "completed",
+          mode: previewsToApply[0]?.generated?.mode || "conversion",
+          language: previewsToApply[0]?.generated?.language || "English",
+          scopeSummary: summarizeSelectedScope(previewsToApply),
+          totalProducts: previewsToApply.length,
+          processedProducts: successCount,
+          failedProducts: failedTitles.length,
+        },
+      });
 
       return {
         ok: successCount > 0,
@@ -450,6 +521,7 @@ export default function AppIndex() {
   const currentPlanName = data.shopStatus?.plan?.name || "";
   const currentBillingInterval = data.shopStatus?.plan?.billing_interval || "monthly";
   const presets = data.presets || [];
+  const jobs = data.jobs || [];
   const auditFilters = data.auditFilters || emptyAuditFilters;
   const planFeatures = data.shopStatus?.plan?.features || emptyPlanFeatures;
   const defaultRequestedPlanName =
@@ -460,6 +532,18 @@ export default function AppIndex() {
   const previewItems =
     actionData?.intent === "preview-bulk-generate-audit" ? actionData.previews || [] : [];
   const [billingInterval, setBillingInterval] = useState("monthly");
+  const onboardingChecklist = buildOnboardingChecklist({
+    profile,
+    presets,
+    audit: data.audit,
+    jobs,
+    usageCount: data.shopStatus?.usage?.count || 0,
+  });
+  const roiMetrics = buildRoiMetrics({
+    usageCount: data.shopStatus?.usage?.count || 0,
+    audit: data.audit,
+    jobs,
+  });
 
   return (
     <s-page heading="AI Product Generator">
@@ -509,6 +593,38 @@ export default function AppIndex() {
         </s-stack>
       </s-section>
 
+      <s-section heading="Onboarding checklist">
+        <div style={metricGridStyle}>
+          {onboardingChecklist.map((item) => (
+            <div key={item.label} style={metricCardStyle}>
+              <strong>{item.done ? "Done" : "Pending"}</strong>
+              <p style={metricLabelStyle}>{item.label}</p>
+            </div>
+          ))}
+        </div>
+      </s-section>
+
+      <s-section heading="ROI snapshot">
+        <div style={metricGridStyle}>
+          <div style={metricCardStyle}>
+            <strong>{roiMetrics.productsImproved}</strong>
+            <p style={metricLabelStyle}>Products improved</p>
+          </div>
+          <div style={metricCardStyle}>
+            <strong>{roiMetrics.catalogIssuesRemaining}</strong>
+            <p style={metricLabelStyle}>Catalog issues remaining</p>
+          </div>
+          <div style={metricCardStyle}>
+            <strong>{roiMetrics.estimatedMinutesSaved}</strong>
+            <p style={metricLabelStyle}>Estimated minutes saved</p>
+          </div>
+          <div style={metricCardStyle}>
+            <strong>{roiMetrics.seoFieldsNeedingAttention}</strong>
+            <p style={metricLabelStyle}>SEO fields needing attention</p>
+          </div>
+        </div>
+      </s-section>
+
       <s-section heading="Saved presets">
         <s-stack direction="block" gap="base">
           <s-paragraph>
@@ -548,7 +664,12 @@ export default function AppIndex() {
                 </div>
                 <div>
                   <label htmlFor="presetLanguage">Language</label>
-                  <select id="presetLanguage" name="presetLanguage" style={inputStyle} defaultValue="English">
+                  <select
+                    id="presetLanguage"
+                    name="presetLanguage"
+                    style={inputStyle}
+                    defaultValue={profile.default_language || "English"}
+                  >
                     <option value="English">English</option>
                     <option value="Arabic">Arabic</option>
                     <option value="French">French</option>
@@ -610,7 +731,7 @@ export default function AppIndex() {
         <s-stack direction="block" gap="base">
           <s-paragraph>
             {data.audit
-              ? `${data.audit.flaggedCount} of ${data.audit.totalCount} recent products need content improvements.`
+              ? `${data.audit.flaggedCount} of ${data.audit.totalCount} recent products need content improvements. Average content score: ${data.audit.averageScore || 100}/100.`
               : "Audit data is not available right now."}
           </s-paragraph>
           <s-paragraph>
@@ -754,7 +875,7 @@ export default function AppIndex() {
                   id="language"
                   name="language"
                   style={inputStyle}
-                  defaultValue="English"
+                  defaultValue={profile.default_language || "English"}
                   disabled={!planFeatures.bulkGenerationEnabled}
                 >
                   <option value="English">English</option>
@@ -783,6 +904,9 @@ export default function AppIndex() {
                       <strong>{item.title}</strong>
                     </div>
                     <p style={auditIssueStyle}>{item.issueSummary}</p>
+                    <p style={auditScoreStyle}>
+                      Score: {item.score}/100 | {capitalizePlanName(item.severity)}
+                    </p>
                     <p style={auditMetaStyle}>
                       Current description: {item.currentDescriptionPreview}
                     </p>
@@ -793,6 +917,13 @@ export default function AppIndex() {
                     <p style={auditMetaStyle}>
                       Collections: {item.collectionTitles.length ? item.collectionTitles.join(", ") : "No collections"}
                     </p>
+                    {item.improvementTips?.length ? (
+                      <ul style={planFeatureListStyle}>
+                        {item.improvementTips.map((tip) => (
+                          <li key={`${item.id}-${tip}`}>{tip}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </label>
                 ))}
               </div>
@@ -945,6 +1076,36 @@ export default function AppIndex() {
         ) : null}
       </s-section>
 
+      <s-section heading="Catalog job history">
+        {jobs.length ? (
+          <div style={presetListStyle}>
+            {jobs.map((job) => (
+              <div key={job.id} style={presetCardStyle}>
+                <div style={presetCardHeaderStyle}>
+                  <strong>{capitalizePlanName(job.job_type)}</strong>
+                  <span style={presetTagStyle}>
+                    {capitalizePlanName(job.status)} | {job.language}
+                  </span>
+                </div>
+                <p style={presetDescriptionTextStyle}>
+                  {job.scope_summary || "Catalog job"}
+                </p>
+                <p style={auditMetaStyle}>
+                  {job.processed_products}/{job.total_products} processed, {job.failed_products} failed
+                </p>
+                <p style={auditMetaStyle}>
+                  {capitalizePlanName(job.mode)} | {formatDateTime(job.created_at)}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={getNoticeStyle(false)}>
+            No bulk job history yet. Your future previews and applies will appear here.
+          </div>
+        )}
+      </s-section>
+
       <s-section
         heading={needsProfile ? "Business onboarding" : "Business profile"}
       >
@@ -998,6 +1159,48 @@ export default function AppIndex() {
               rows="5"
               placeholder="Example: Write in a polished premium tone. Focus on comfort, materials, and lifestyle. Avoid slang and exaggerated claims."
               defaultValue={profile.brand_guidelines || ""}
+              style={inputStyle}
+            />
+
+            <label htmlFor="defaultLanguage">Default language</label>
+            <select
+              id="defaultLanguage"
+              name="defaultLanguage"
+              defaultValue={profile.default_language || "English"}
+              style={inputStyle}
+            >
+              <option value="English">English</option>
+              <option value="Arabic">Arabic</option>
+              <option value="French">French</option>
+            </select>
+
+            <label htmlFor="preferredKeywords">Preferred keywords</label>
+            <input
+              id="preferredKeywords"
+              name="preferredKeywords"
+              type="text"
+              placeholder="premium sneakers, breathable mesh, comfort..."
+              defaultValue={profile.preferred_keywords || ""}
+              style={inputStyle}
+            />
+
+            <label htmlFor="bannedWords">Words to avoid</label>
+            <input
+              id="bannedWords"
+              name="bannedWords"
+              type="text"
+              placeholder="cheap, best ever, revolutionary..."
+              defaultValue={profile.banned_words || ""}
+              style={inputStyle}
+            />
+
+            <label htmlFor="brandExampleCopy">Example brand copy</label>
+            <textarea
+              id="brandExampleCopy"
+              name="brandExampleCopy"
+              rows="5"
+              placeholder="Paste a short example of the tone and style you want future generations to imitate."
+              defaultValue={profile.brand_example_copy || ""}
               style={inputStyle}
             />
 
@@ -1557,6 +1760,33 @@ const paymentNoticeTextStyle = {
   lineHeight: 1.5,
 };
 
+const metricGridStyle = {
+  display: "grid",
+  gap: "12px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+};
+
+const metricCardStyle = {
+  display: "grid",
+  gap: "6px",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+};
+
+const metricLabelStyle = {
+  margin: 0,
+  color: "#4b5563",
+  lineHeight: 1.5,
+};
+
+const auditScoreStyle = {
+  margin: 0,
+  color: "#1d4ed8",
+  fontWeight: 600,
+};
+
 function getNoticeStyle(isSuccess) {
   return {
     marginTop: "12px",
@@ -1574,6 +1804,10 @@ const emptyProfile = {
   target_audience: "",
   description_style: "",
   brand_guidelines: "",
+  default_language: "English",
+  banned_words: "",
+  preferred_keywords: "",
+  brand_example_copy: "",
 };
 
 function capitalizePlanName(value) {
@@ -1584,6 +1818,74 @@ function capitalizePlanName(value) {
 
 function formatCurrency(cents) {
   return (Number(cents || 0) / 100).toFixed(2);
+}
+
+function summarizeSelectedScope(items) {
+  if (!items?.length) {
+    return "No products";
+  }
+
+  if (items.length === 1) {
+    return items[0].title || "1 product";
+  }
+
+  return `${items.length} selected products`;
+}
+
+function buildOnboardingChecklist({ profile, presets, audit, jobs, usageCount }) {
+  return [
+    {
+      label: "Set up your core business profile",
+      done:
+        Boolean(profile.business_type) &&
+        Boolean(profile.brand_tone) &&
+        Boolean(profile.target_audience) &&
+        Boolean(profile.description_style),
+    },
+    {
+      label: "Add brand rules and example copy",
+      done:
+        Boolean(profile.brand_guidelines) &&
+        (Boolean(profile.preferred_keywords) || Boolean(profile.brand_example_copy)),
+    },
+    {
+      label: "Save at least one reusable preset",
+      done: (presets || []).length > 0,
+    },
+    {
+      label: "Run your first catalog improvement batch",
+      done: (jobs || []).length > 0,
+    },
+    {
+      label: "Improve at least one flagged product",
+      done: Number(audit?.flaggedCount || 0) < Number(audit?.totalCount || 0),
+    },
+    {
+      label: "Generate content at least once",
+      done: Number(usageCount || 0) > 0,
+    },
+  ];
+}
+
+function buildRoiMetrics({ usageCount, audit, jobs }) {
+  const completedJobs = (jobs || []).filter((job) => job.status !== "queued");
+  const processedProducts = completedJobs.reduce(
+    (total, job) => total + Number(job.processed_products || 0),
+    0,
+  );
+
+  return {
+    productsImproved: processedProducts,
+    catalogIssuesRemaining: Number(audit?.flaggedCount || 0),
+    estimatedMinutesSaved: processedProducts * 6 + Number(usageCount || 0) * 2,
+    seoFieldsNeedingAttention: (audit?.items || []).reduce(
+      (total, item) =>
+        total +
+        (item.issueTypes.includes("seo-title") ? 1 : 0) +
+        (item.issueTypes.includes("seo-description") ? 1 : 0),
+      0,
+    ),
+  };
 }
 
 async function getCatalogAudit(admin, filters) {
@@ -1633,7 +1935,9 @@ async function getCatalogAudit(admin, filters) {
       const descriptionText = stripHtml(product.descriptionHtml || "");
       const issues = [];
       const issueTypes = [];
+      const improvementTips = [];
       const collections = product.collections?.nodes || [];
+      let score = 100;
 
       if (descriptionText.length < 120) {
         issues.push(
@@ -1642,17 +1946,36 @@ async function getCatalogAudit(admin, filters) {
             : "Description is missing.",
         );
         issueTypes.push("description");
+        improvementTips.push(
+          descriptionText
+            ? "Expand the description with outcomes, materials, and clear benefits."
+            : "Add a full customer-facing description with benefits and specifics.",
+        );
+        score -= descriptionText ? 30 : 45;
       }
 
       if (!product.seo?.title) {
         issues.push("SEO title is missing.");
         issueTypes.push("seo-title");
+        improvementTips.push("Add an SEO title for stronger search visibility.");
+        score -= 15;
       }
 
       if (!product.seo?.description) {
         issues.push("SEO description is missing.");
         issueTypes.push("seo-description");
+        improvementTips.push("Add an SEO description with a clear shopping hook.");
+        score -= 15;
       }
+
+      if (descriptionText.length >= 120 && descriptionText.length < 220) {
+        improvementTips.push("Consider adding more specific benefits or material details.");
+        score -= 10;
+      }
+
+      const normalizedScore = Math.max(0, score);
+      const severity =
+        normalizedScore < 45 ? "critical" : normalizedScore < 70 ? "warning" : "healthy";
 
       return {
         id: product.id,
@@ -1669,6 +1992,9 @@ async function getCatalogAudit(admin, filters) {
         seoDescription: product.seo?.description || "",
         issueTypes,
         issueCount: issues.length,
+        score: normalizedScore,
+        severity,
+        improvementTips,
       };
     })
     .filter((item) => {
@@ -1706,6 +2032,11 @@ async function getCatalogAudit(admin, filters) {
     totalCount: products.length,
     flaggedCount: items.length,
     items,
+    averageScore: items.length
+      ? Math.round(
+          items.reduce((total, item) => total + Number(item.score || 0), 0) / items.length,
+        )
+      : 100,
     availableVendors,
     availableProductTypes,
     availableCollections,
@@ -1832,6 +2163,8 @@ async function buildBulkGenerationInput({ admin, backend, clientId, formData }) 
   return {
     errorMessage: "",
     previews,
+    mode,
+    language,
   };
 }
 

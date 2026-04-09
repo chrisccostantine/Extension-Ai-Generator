@@ -5,6 +5,7 @@ const loginButton = document.getElementById("loginBtn");
 const logoutButton = document.getElementById("logoutBtn");
 const refreshButton = document.getElementById("refreshBtn");
 const statusFilter = document.getElementById("statusFilter");
+const subscriptionSearchInput = document.getElementById("subscriptionSearch");
 const requestsList = document.getElementById("requestsList");
 const subscriptionsList = document.getElementById("subscriptionsList");
 const statusElement = document.getElementById("status");
@@ -19,6 +20,8 @@ const paymentInstructionsElement = document.getElementById(
 const supportContactElement = document.getElementById("supportContact");
 
 const STORAGE_KEY = "shopify_ai_admin_token";
+let availablePlans = [];
+let subscriptionsCache = [];
 
 initialize();
 
@@ -41,6 +44,7 @@ logoutButton.addEventListener("click", () => {
   adminTokenInput.value = "";
   requestsList.innerHTML = "";
   subscriptionsList.innerHTML = "";
+  subscriptionSearchInput.value = "";
   setStatus("Logged out.");
 });
 
@@ -50,6 +54,10 @@ refreshButton.addEventListener("click", async () => {
 
 statusFilter.addEventListener("change", async () => {
   await loadRequests();
+});
+
+subscriptionSearchInput.addEventListener("input", () => {
+  renderSubscriptions(subscriptionsCache);
 });
 
 window.handlePlanRequestActionFromButton = async function handlePlanRequestActionFromButton(
@@ -76,6 +84,44 @@ window.handlePlanRequestActionFromButton = async function handlePlanRequestActio
     });
   }
 };
+
+window.handleSubscriptionOverrideFromButton =
+  async function handleSubscriptionOverrideFromButton(button, shopId) {
+    const form = button.closest(".subscriptionOverrideForm");
+    const planSelect = form?.querySelector('[name="overridePlanName"]');
+    const intervalSelect = form?.querySelector('[name="overrideBillingInterval"]');
+    const planName = planSelect?.value || "";
+    const billingInterval = intervalSelect?.value || "monthly";
+    const token = localStorage.getItem(STORAGE_KEY) || "";
+
+    if (!planName) {
+      setStatus("Choose a plan before overriding the subscription.");
+      return;
+    }
+
+    setStatus("Updating subscription...");
+
+    try {
+      const response = await fetch(`/admin/api/subscriptions/${shopId}/override`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": token,
+        },
+        body: JSON.stringify({ planName, billingInterval }),
+      });
+      const data = await parseApiResponse(response);
+
+      if (!response.ok) {
+        throw new Error(data.error || "Subscription override failed.");
+      }
+
+      await loadDashboard();
+      setStatus(data.message || "Subscription updated.");
+    } catch (error) {
+      setStatus(error.message || "Subscription override failed.");
+    }
+  };
 
 async function initialize() {
   const savedToken = localStorage.getItem(STORAGE_KEY) || "";
@@ -115,6 +161,7 @@ async function loadDashboard() {
     totalUsageElement.textContent = data.summary.totalUsageEvents;
     paymentInstructionsElement.textContent = data.paymentInstructions;
     supportContactElement.textContent = data.supportContact;
+    availablePlans = data.plans || [];
 
     await loadRequests();
     await loadSubscriptions();
@@ -165,7 +212,8 @@ async function loadSubscriptions() {
       throw new Error(data.error || "Could not load subscriptions.");
     }
 
-    renderSubscriptions(data.subscriptions || []);
+    subscriptionsCache = data.subscriptions || [];
+    renderSubscriptions(subscriptionsCache);
   } catch (error) {
     subscriptionsList.innerHTML = "";
     setStatus(error.message || "Could not load subscriptions.");
@@ -211,13 +259,23 @@ function renderRequests(requests) {
 }
 
 function renderSubscriptions(subscriptions) {
-  if (!subscriptions.length) {
+  const query = (subscriptionSearchInput.value || "").trim().toLowerCase();
+  const filteredSubscriptions = subscriptions.filter((subscription) => {
+    if (!query) {
+      return true;
+    }
+
+    const haystack = `${subscription.display_name || ""} ${subscription.client_id || ""}`.toLowerCase();
+    return haystack.includes(query);
+  });
+
+  if (!filteredSubscriptions.length) {
     subscriptionsList.innerHTML =
-      "<p class='muted'>No subscriptions found yet.</p>";
+      "<p class='muted'>No subscriptions matched the current search.</p>";
     return;
   }
 
-  subscriptionsList.innerHTML = subscriptions
+  subscriptionsList.innerHTML = filteredSubscriptions
     .map(
       (subscription) => `
         <article class="requestCard">
@@ -239,6 +297,28 @@ function renderSubscriptions(subscriptions) {
           <p><strong>Monthly limit:</strong> ${formatNumber(subscription.monthly_generation_limit)} generations</p>
           <p><strong>Latest contact:</strong> ${escapeHtml(subscription.latest_contact_name || "Not provided")} | ${escapeHtml(subscription.latest_contact_channel || "Not provided")}</p>
           <p><strong>Latest payment:</strong> ${escapeHtml(subscription.latest_payment_method || "Not provided")} | Ref: ${escapeHtml(subscription.latest_payment_reference || "Not provided")}</p>
+          <form class="requestActionForm subscriptionOverrideForm" data-shop-id="${subscription.shop_id}">
+            <div class="requestButtons">
+              <select name="overridePlanName">
+                ${availablePlans
+                  .map(
+                    (plan) =>
+                      `<option value="${escapeAttribute(plan.name)}"${plan.name === subscription.plan_name ? " selected" : ""}>${escapeHtml(plan.name)}</option>`,
+                  )
+                  .join("")}
+              </select>
+              <select name="overrideBillingInterval">
+                <option value="monthly"${subscription.billing_interval === "monthly" ? " selected" : ""}>Monthly</option>
+                <option value="yearly"${subscription.billing_interval === "yearly" ? " selected" : ""}>Yearly</option>
+              </select>
+              <button
+                type="button"
+                onclick="window.handleSubscriptionOverrideFromButton(this, '${subscription.shop_id}')"
+              >
+                Override plan
+              </button>
+            </div>
+          </form>
         </article>
       `,
     )
