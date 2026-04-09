@@ -19,13 +19,19 @@ const PAYMENT_METHOD_OPTIONS = [
   "BOB Finance",
   "Bank Audi Neo",
 ];
+const BACKEND_REQUEST_TIMEOUT_MS = 8000;
+const LOADER_AUDIT_TIMEOUT_MS = 6000;
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
   const auditFilters = getAuditFiltersFromRequest(request);
-  const audit = await getCatalogAudit(admin, auditFilters);
+  const audit = await withTimeout(
+    getCatalogAudit(admin, auditFilters),
+    LOADER_AUDIT_TIMEOUT_MS,
+    "Catalog audit timed out.",
+  ).catch(() => emptyAuditData);
 
   if (!backend.baseUrl) {
     return {
@@ -56,26 +62,28 @@ export const loader = async ({ request }) => {
         method: "GET",
       }),
     ]);
-    const jobsPayload = await backendRequest({
-      backend,
-      pathname: "/catalog-jobs",
-      method: "GET",
-      clientId,
-    });
-    const imageJobsPayload = await backendRequest({
-      backend,
-      pathname: "/image-jobs",
-      method: "GET",
-      clientId,
-    });
-    const presetsPayload = shopStatus?.plan?.features?.presetsEnabled
-      ? await backendRequest({
-          backend,
-          pathname: "/content-presets",
-          method: "GET",
-          clientId,
-        })
-      : { presets: [] };
+    const [jobsResult, imageJobsResult, presetsResult] = await Promise.allSettled([
+      backendRequest({
+        backend,
+        pathname: "/catalog-jobs",
+        method: "GET",
+        clientId,
+      }),
+      backendRequest({
+        backend,
+        pathname: "/image-jobs",
+        method: "GET",
+        clientId,
+      }),
+      shopStatus?.plan?.features?.presetsEnabled
+        ? backendRequest({
+            backend,
+            pathname: "/content-presets",
+            method: "GET",
+            clientId,
+          })
+        : Promise.resolve({ presets: [] }),
+    ]);
 
     return {
       backendConfigured: true,
@@ -87,9 +95,9 @@ export const loader = async ({ request }) => {
       supportContact: plansPayload.supportContact || "",
       audit,
       auditFilters,
-      presets: presetsPayload.presets || [],
-      jobs: jobsPayload.jobs || [],
-      imageJobs: imageJobsPayload.jobs || [],
+      presets: presetsResult.status === "fulfilled" ? presetsResult.value.presets || [] : [],
+      jobs: jobsResult.status === "fulfilled" ? jobsResult.value.jobs || [] : [],
+      imageJobs: imageJobsResult.status === "fulfilled" ? imageJobsResult.value.jobs || [] : [],
     };
   } catch (error) {
     return {
@@ -1922,23 +1930,46 @@ function toClientId(shopDomain) {
   return `shopify-store:${handle}`;
 }
 
-async function backendRequest({ backend, pathname, method, clientId, body }) {
+async function backendRequest({
+  backend,
+  pathname,
+  method,
+  clientId,
+  body,
+  timeoutMs = BACKEND_REQUEST_TIMEOUT_MS,
+}) {
   const url = new URL(pathname, backend.baseUrl);
 
   if (method === "GET" && clientId) {
     url.searchParams.set("clientId", clientId);
   }
 
-  const response = await fetch(url.toString(), {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(backend.extensionToken
-        ? { "x-extension-token": backend.extensionToken }
-        : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response;
+
+  try {
+    response = await fetch(url.toString(), {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(backend.extensionToken
+          ? { "x-extension-token": backend.extensionToken }
+          : {}),
+      },
+      signal: controller.signal,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Request timed out for ${pathname}.`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = await response.json();
 
@@ -1947,6 +1978,19 @@ async function backendRequest({ backend, pathname, method, clientId, body }) {
   }
 
   return data;
+}
+
+async function withTimeout(promise, timeoutMs, timeoutMessage) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function serializeUploadedProof(file) {
@@ -2920,6 +2964,17 @@ const emptyAuditFilters = {
   vendor: "",
   productType: "",
   collectionId: "",
+};
+
+const emptyAuditData = {
+  totalCount: 0,
+  flaggedCount: 0,
+  items: [],
+  recentProducts: [],
+  averageScore: 100,
+  availableVendors: [],
+  availableProductTypes: [],
+  availableCollections: [],
 };
 
 const emptyPlanFeatures = {
