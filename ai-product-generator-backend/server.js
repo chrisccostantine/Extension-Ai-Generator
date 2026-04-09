@@ -142,7 +142,7 @@ app.get("/plans", async (req, res) => {
     const plans = await listPlans();
     return res.json({
       plans: plans.map((plan) => ({
-        ...plan,
+        ...enrichPlan(plan),
         isPaid: plan.price_cents > 0,
       })),
       paymentInstructions,
@@ -252,6 +252,14 @@ app.get("/content-presets", async (req, res) => {
   try {
     const clientId = normalizeClientId(req.query.clientId);
     const shop = await ensureShop(clientId);
+    const plan = await getPlanForShop(shop.id);
+
+    if (!hasPlanFeature(plan, "presetsEnabled")) {
+      return res.status(403).json({
+        error: "Your current plan does not include saved presets.",
+      });
+    }
+
     const presets = await listContentPresetsForShop(shop.id, clientId);
 
     return res.json({ presets });
@@ -271,6 +279,14 @@ app.post("/content-presets", async (req, res) => {
   try {
     const clientId = normalizeClientId(req.body?.clientId);
     const shop = await ensureShop(clientId);
+    const plan = await getPlanForShop(shop.id);
+
+    if (!hasPlanFeature(plan, "presetsEnabled")) {
+      return res.status(403).json({
+        error: "Upgrade to a higher plan to save content presets.",
+      });
+    }
+
     const preset = await createContentPresetForShop(shop.id, clientId, {
       name: sanitizeText(req.body?.name, 80),
       mode: normalizeGenerationMode(req.body?.mode),
@@ -298,7 +314,14 @@ app.post("/content-presets/:id/delete", async (req, res) => {
   try {
     const clientId = normalizeClientId(req.body?.clientId);
     const shop = await ensureShop(clientId);
+    const plan = await getPlanForShop(shop.id);
     const presetId = Number(req.params.id);
+
+    if (!hasPlanFeature(plan, "presetsEnabled")) {
+      return res.status(403).json({
+        error: "Your current plan does not include saved presets.",
+      });
+    }
 
     if (!Number.isInteger(presetId) || presetId <= 0) {
       return res.status(400).json({ error: "Invalid preset id." });
@@ -452,6 +475,27 @@ app.post("/generate-product-content", async (req, res) => {
     if (!plan.is_active || plan.status !== "active") {
       return res.status(403).json({
         error: "This shop does not have an active subscription.",
+      });
+    }
+
+    if (!hasPlanFeature(plan, "multilingualEnabled") && requestedLanguage !== "English") {
+      return res.status(403).json({
+        error: "Your current plan does not include multilingual generation.",
+      });
+    }
+
+    if (
+      !hasPlanFeature(plan, "advancedModesEnabled") &&
+      !["conversion", "rewrite"].includes(generationMode)
+    ) {
+      return res.status(403).json({
+        error: "Your current plan does not include advanced generation modes.",
+      });
+    }
+
+    if (!hasPlanFeature(plan, "presetsEnabled") && presetInstructions) {
+      return res.status(403).json({
+        error: "Your current plan does not include saved preset instructions.",
       });
     }
 
@@ -1131,16 +1175,7 @@ async function initializeDatabase() {
 
 async function listPlans() {
   if (!pool) {
-    return [
-      {
-        id: 0,
-        name: "free",
-        description: "For testing and very small stores that only need occasional generations.",
-        monthly_generation_limit: monthlyGenerationLimit,
-        price_cents: 0,
-        is_active: true,
-      },
-    ];
+    return [enrichPlan(buildFallbackFreePlan())];
   }
 
   const result = await pool.query(
@@ -1152,20 +1187,13 @@ async function listPlans() {
     `,
   );
 
-  return result.rows;
+  return result.rows.map((plan) => enrichPlan(plan));
 }
 
 async function getPlanByName(name) {
   if (!pool) {
     if (name === freePlanName) {
-      return {
-        id: 0,
-        name: freePlanName,
-        description: "For testing and very small stores that only need occasional generations.",
-        monthly_generation_limit: monthlyGenerationLimit,
-        price_cents: 0,
-        is_active: true,
-      };
+      return enrichPlan(buildFallbackFreePlan());
     }
 
     return null;
@@ -1181,7 +1209,7 @@ async function getPlanByName(name) {
     [name],
   );
 
-  return result.rows[0] || null;
+  return result.rows[0] ? enrichPlan(result.rows[0]) : null;
 }
 
 async function seedPlans() {
@@ -1194,25 +1222,25 @@ async function seedPlans() {
     VALUES
       (
         'free',
-        'For testing and very small stores that only need occasional generations.',
+        '5 generations per month for trying the app. Includes single-product generation only. Bulk tools and saved presets are not included.',
         5,
         0
       ),
       (
         'starter',
-        'For new stores that need steady product copy for a focused catalog.',
+        '300 generations per month for steady single-product work. Best for small catalogs that do not need bulk generation or saved presets yet.',
         300,
         900
       ),
       (
         'growth',
-        'For growing stores that publish regularly and want more room each month.',
+        '1,000 generations per month with bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
         1000,
         2400
       ),
       (
         'scale',
-        'For active catalogs and small teams managing frequent launches.',
+        '3,000 generations per month with full access to bulk workflows, saved presets, multilingual generation, and advanced catalog optimization.',
         3000,
         4900
       )
@@ -1394,15 +1422,10 @@ async function ensureSubscription(shopId) {
 
 async function getPlanForShop(shopId) {
   if (!pool) {
-    return {
-      id: 0,
-      name: freePlanName,
-      description: "For testing and very small stores that only need occasional generations.",
-      monthly_generation_limit: monthlyGenerationLimit,
-      price_cents: 0,
-      is_active: true,
+    return enrichPlan({
+      ...buildFallbackFreePlan(),
       status: "active",
-    };
+    });
   }
 
   const result = await pool.query(
@@ -1424,18 +1447,105 @@ async function getPlanForShop(shopId) {
   );
 
   if (result.rows[0]) {
-    return result.rows[0];
+    return enrichPlan(result.rows[0]);
   }
 
+  return enrichPlan({
+    ...buildFallbackFreePlan(),
+    status: "active",
+  });
+}
+
+function buildFallbackFreePlan() {
   return {
     id: 0,
     name: freePlanName,
-    description: "For testing and very small stores that only need occasional generations.",
+    description:
+      "5 generations per month for trying the app. Includes single-product generation only. Bulk tools and saved presets are not included.",
     monthly_generation_limit: monthlyGenerationLimit,
     price_cents: 0,
     is_active: true,
-    status: "active",
   };
+}
+
+function getPlanFeatureFlags(planName) {
+  const normalized = String(planName || "").trim().toLowerCase();
+
+  if (normalized === "growth" || normalized === "scale") {
+    return {
+      presetsEnabled: true,
+      bulkGenerationEnabled: true,
+      multilingualEnabled: true,
+      advancedModesEnabled: true,
+    };
+  }
+
+  return {
+    presetsEnabled: false,
+    bulkGenerationEnabled: false,
+    multilingualEnabled: false,
+    advancedModesEnabled: false,
+  };
+}
+
+function enrichPlan(plan) {
+  const features = getPlanFeatureFlags(plan?.name);
+  const featuresList = getPlanFeatureList(plan?.name);
+
+  return {
+    ...plan,
+    features,
+    features_list: featuresList,
+  };
+}
+
+function hasPlanFeature(plan, featureName) {
+  return Boolean(enrichPlan(plan)?.features?.[featureName]);
+}
+
+function getPlanFeatureList(planName) {
+  const normalized = String(planName || "").trim().toLowerCase();
+
+  if (normalized === "free") {
+    return [
+      "5 generations per month",
+      "Single-product generation",
+      "Bulk generation locked",
+      "Saved presets locked",
+    ];
+  }
+
+  if (normalized === "starter") {
+    return [
+      "300 generations per month",
+      "Single-product generation",
+      "Catalog audit visibility",
+      "Bulk generation locked",
+      "Saved presets locked",
+    ];
+  }
+
+  if (normalized === "growth") {
+    return [
+      "1,000 generations per month",
+      "Bulk generation and preview",
+      "Saved presets",
+      "Multilingual generation",
+      "Advanced generation modes",
+    ];
+  }
+
+  if (normalized === "scale") {
+    return [
+      "3,000 generations per month",
+      "Bulk generation and preview",
+      "Saved presets",
+      "Multilingual generation",
+      "Advanced generation modes",
+    ];
+  }
+
+  return [];
 }
 
 async function getLatestPlanRequestForShop(shopId) {

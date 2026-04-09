@@ -32,7 +32,7 @@ export const loader = async ({ request }) => {
   }
 
   try {
-    const [shopStatus, plansPayload, presetsPayload] = await Promise.all([
+    const [shopStatus, plansPayload] = await Promise.all([
       backendRequest({
         backend,
         pathname: "/shop-status",
@@ -44,13 +44,15 @@ export const loader = async ({ request }) => {
         pathname: "/plans",
         method: "GET",
       }),
-      backendRequest({
-        backend,
-        pathname: "/content-presets",
-        method: "GET",
-        clientId,
-      }),
     ]);
+    const presetsPayload = shopStatus?.plan?.features?.presetsEnabled
+      ? await backendRequest({
+          backend,
+          pathname: "/content-presets",
+          method: "GET",
+          clientId,
+        })
+      : { presets: [] };
 
     return {
       backendConfigured: true,
@@ -98,6 +100,8 @@ export const action = async ({ request }) => {
   }
 
   try {
+    const planFeatures = await getPlanAccess(backend, clientId);
+
     if (intent === "save-profile") {
       const businessType = String(formData.get("businessType") || "").trim();
       const brandTone = String(formData.get("brandTone") || "").trim();
@@ -198,6 +202,14 @@ export const action = async ({ request }) => {
     }
 
     if (intent === "apply-preview-batch") {
+      if (!planFeatures.bulkGenerationEnabled) {
+        return {
+          ok: false,
+          intent,
+          message: "Upgrade to Growth or Scale to apply bulk previews.",
+        };
+      }
+
       const previewsJson = String(formData.get("previewsJson") || "").trim();
 
       if (!previewsJson) {
@@ -252,6 +264,14 @@ export const action = async ({ request }) => {
     }
 
     if (intent === "save-preset") {
+      if (!planFeatures.presetsEnabled) {
+        return {
+          ok: false,
+          intent,
+          message: "Upgrade to Growth or Scale to save presets.",
+        };
+      }
+
       const name = String(formData.get("presetName") || "").trim();
       const mode = String(formData.get("presetMode") || "").trim().toLowerCase();
       const language = String(formData.get("presetLanguage") || "").trim();
@@ -278,6 +298,14 @@ export const action = async ({ request }) => {
     }
 
     if (intent === "delete-preset") {
+      if (!planFeatures.presetsEnabled) {
+        return {
+          ok: false,
+          intent,
+          message: "Your current plan does not include saved presets.",
+        };
+      }
+
       const presetId = String(formData.get("presetId") || "").trim();
 
       if (!presetId) {
@@ -368,6 +396,7 @@ export default function AppIndex() {
   const currentPlanName = data.shopStatus?.plan?.name || "";
   const presets = data.presets || [];
   const auditFilters = data.auditFilters || emptyAuditFilters;
+  const planFeatures = data.shopStatus?.plan?.features || emptyPlanFeatures;
   const defaultRequestedPlanName =
     paidPlans.find((plan) => plan.name !== currentPlanName)?.name ||
     paidPlans[0]?.name ||
@@ -419,87 +448,94 @@ export default function AppIndex() {
             Save reusable generation recipes for tone, language, and special instructions so your team can apply them across the catalog quickly.
           </s-paragraph>
         </s-stack>
-
-        <Form method="post" action="?index">
-          <input type="hidden" name="intent" value="save-preset" />
-          <div style={presetFormGridStyle}>
-            <div>
-              <label htmlFor="presetName">Preset name</label>
-              <input
-                id="presetName"
-                name="presetName"
-                type="text"
-                placeholder="Luxury sneakers in Arabic"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label htmlFor="presetMode">Mode</label>
-              <select id="presetMode" name="presetMode" style={inputStyle} defaultValue="conversion">
-                <option value="conversion">Conversion-focused</option>
-                <option value="luxury">Luxury</option>
-                <option value="seo">SEO-friendly</option>
-                <option value="technical">Technical</option>
-                <option value="benefits">Benefits-first</option>
-                <option value="mobile">Mobile-friendly</option>
-                <option value="rewrite">Rewrite current copy</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="presetLanguage">Language</label>
-              <select id="presetLanguage" name="presetLanguage" style={inputStyle} defaultValue="English">
-                <option value="English">English</option>
-                <option value="Arabic">Arabic</option>
-                <option value="French">French</option>
-              </select>
-            </div>
-          </div>
-
-          <label htmlFor="presetInstructions">Extra instructions</label>
-          <textarea
-            id="presetInstructions"
-            name="presetInstructions"
-            rows="4"
-            placeholder="Example: Keep a refined premium tone, mention craftsmanship, and avoid playful language."
-            style={inputStyle}
-          />
-
-          <s-button type="submit" variant="secondary">Save preset</s-button>
-        </Form>
-
-        {actionData?.message && actionData.intent === "save-preset" && (
-          <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
-        )}
-
-        {presets.length ? (
-          <div style={presetListStyle}>
-            {presets.map((preset) => (
-              <div key={preset.id} style={presetCardStyle}>
-                <div style={presetCardHeaderStyle}>
-                  <strong>{preset.name}</strong>
-                  <span style={presetTagStyle}>
-                    {capitalizePlanName(preset.mode)} | {preset.language}
-                  </span>
-                </div>
-                <p style={presetDescriptionTextStyle}>
-                  {preset.instructions || "No extra instructions for this preset."}
-                </p>
-                <Form method="post" action="?index">
-                  <input type="hidden" name="intent" value="delete-preset" />
-                  <input type="hidden" name="presetId" value={preset.id} />
-                  <s-button type="submit" variant="secondary">Delete preset</s-button>
-                </Form>
-              </div>
-            ))}
+        {!planFeatures.presetsEnabled ? (
+          <div style={getNoticeStyle(false)}>
+            Saved presets are available on the Growth and Scale plans.
           </div>
         ) : (
-          <div style={getNoticeStyle(false)}>
-            No presets saved yet. Create one to reuse your favorite generation setup.
-          </div>
-        )}
+          <>
+            <Form method="post" action="?index">
+              <input type="hidden" name="intent" value="save-preset" />
+              <div style={presetFormGridStyle}>
+                <div>
+                  <label htmlFor="presetName">Preset name</label>
+                  <input
+                    id="presetName"
+                    name="presetName"
+                    type="text"
+                    placeholder="Luxury sneakers in Arabic"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="presetMode">Mode</label>
+                  <select id="presetMode" name="presetMode" style={inputStyle} defaultValue="conversion">
+                    <option value="conversion">Conversion-focused</option>
+                    <option value="luxury">Luxury</option>
+                    <option value="seo">SEO-friendly</option>
+                    <option value="technical">Technical</option>
+                    <option value="benefits">Benefits-first</option>
+                    <option value="mobile">Mobile-friendly</option>
+                    <option value="rewrite">Rewrite current copy</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="presetLanguage">Language</label>
+                  <select id="presetLanguage" name="presetLanguage" style={inputStyle} defaultValue="English">
+                    <option value="English">English</option>
+                    <option value="Arabic">Arabic</option>
+                    <option value="French">French</option>
+                  </select>
+                </div>
+              </div>
 
-        {actionData?.message && actionData.intent === "delete-preset" && (
-          <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+              <label htmlFor="presetInstructions">Extra instructions</label>
+              <textarea
+                id="presetInstructions"
+                name="presetInstructions"
+                rows="4"
+                placeholder="Example: Keep a refined premium tone, mention craftsmanship, and avoid playful language."
+                style={inputStyle}
+              />
+
+              <s-button type="submit" variant="secondary">Save preset</s-button>
+            </Form>
+
+            {actionData?.message && actionData.intent === "save-preset" && (
+              <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+            )}
+
+            {presets.length ? (
+              <div style={presetListStyle}>
+                {presets.map((preset) => (
+                  <div key={preset.id} style={presetCardStyle}>
+                    <div style={presetCardHeaderStyle}>
+                      <strong>{preset.name}</strong>
+                      <span style={presetTagStyle}>
+                        {capitalizePlanName(preset.mode)} | {preset.language}
+                      </span>
+                    </div>
+                    <p style={presetDescriptionTextStyle}>
+                      {preset.instructions || "No extra instructions for this preset."}
+                    </p>
+                    <Form method="post" action="?index">
+                      <input type="hidden" name="intent" value="delete-preset" />
+                      <input type="hidden" name="presetId" value={preset.id} />
+                      <s-button type="submit" variant="secondary">Delete preset</s-button>
+                    </Form>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={getNoticeStyle(false)}>
+                No presets saved yet. Create one to reuse your favorite generation setup.
+              </div>
+            )}
+
+            {actionData?.message && actionData.intent === "delete-preset" && (
+              <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+            )}
+          </>
         )}
       </s-section>
 
@@ -514,6 +550,12 @@ export default function AppIndex() {
             Review missing or weak descriptions, missing SEO content, and then generate improved copy in bulk.
           </s-paragraph>
         </s-stack>
+
+        {!planFeatures.bulkGenerationEnabled && (
+          <div style={getNoticeStyle(false)}>
+            Bulk generation, preview, and bulk apply are available on the Growth and Scale plans.
+          </div>
+        )}
 
         <Form method="get">
           <div style={auditFilterGridStyle}>
@@ -606,7 +648,13 @@ export default function AppIndex() {
             <div style={bulkControlsStyle}>
               <div>
                 <label htmlFor="presetId">Saved preset</label>
-                <select id="presetId" name="presetId" style={inputStyle} defaultValue="">
+                <select
+                  id="presetId"
+                  name="presetId"
+                  style={inputStyle}
+                  defaultValue=""
+                  disabled={!planFeatures.presetsEnabled}
+                >
                   <option value="">No preset</option>
                   {presets.map((preset) => (
                     <option key={preset.id} value={preset.id}>
@@ -617,7 +665,13 @@ export default function AppIndex() {
               </div>
               <div>
                 <label htmlFor="mode">Rewrite mode</label>
-                <select id="mode" name="mode" style={inputStyle} defaultValue="conversion">
+                <select
+                  id="mode"
+                  name="mode"
+                  style={inputStyle}
+                  defaultValue="conversion"
+                  disabled={!planFeatures.bulkGenerationEnabled}
+                >
                   <option value="conversion">Conversion-focused</option>
                   <option value="luxury">Luxury</option>
                   <option value="seo">SEO-friendly</option>
@@ -629,7 +683,13 @@ export default function AppIndex() {
               </div>
               <div>
                 <label htmlFor="language">Language</label>
-                <select id="language" name="language" style={inputStyle} defaultValue="English">
+                <select
+                  id="language"
+                  name="language"
+                  style={inputStyle}
+                  defaultValue="English"
+                  disabled={!planFeatures.bulkGenerationEnabled}
+                >
                   <option value="English">English</option>
                   <option value="Arabic">Arabic</option>
                   <option value="French">French</option>
@@ -644,6 +704,7 @@ export default function AppIndex() {
               rows="4"
               placeholder="Optional extra guidance for this bulk run"
               style={inputStyle}
+              disabled={!planFeatures.bulkGenerationEnabled}
             />
 
             {auditItems.length ? (
@@ -685,7 +746,11 @@ export default function AppIndex() {
                   event.currentTarget.form.elements.intent.value =
                     "preview-bulk-generate-audit";
                 }}
-                disabled={needsProfile || !auditItems.length}
+                disabled={
+                  needsProfile ||
+                  !auditItems.length ||
+                  !planFeatures.bulkGenerationEnabled
+                }
               >
                 Preview selected products
               </s-button>
@@ -699,7 +764,11 @@ export default function AppIndex() {
                   event.currentTarget.form.elements.intent.value =
                     "bulk-generate-audit";
                 }}
-                disabled={needsProfile || !auditItems.length}
+                disabled={
+                  needsProfile ||
+                  !auditItems.length ||
+                  !planFeatures.bulkGenerationEnabled
+                }
               >
                 Generate and apply to selected products
               </s-button>
@@ -797,7 +866,11 @@ export default function AppIndex() {
                   </div>
                 ))}
               </div>
-              <s-button type="submit" variant="secondary">
+              <s-button
+                type="submit"
+                variant="secondary"
+                disabled={!planFeatures.bulkGenerationEnabled}
+              >
                 Apply selected previews
               </s-button>
             </Form>
@@ -898,6 +971,13 @@ export default function AppIndex() {
                           {plan.description ||
                             "Monthly access to AI product generation for your store."}
                         </p>
+                        {plan.features_list?.length ? (
+                          <ul style={planFeatureListStyle}>
+                            {plan.features_list.map((feature) => (
+                              <li key={`${plan.name}-${feature}`}>{feature}</li>
+                            ))}
+                          </ul>
+                        ) : null}
                         <p style={planMetaStyle}>
                           {plan.monthly_generation_limit.toLocaleString()} generations per month
                         </p>
@@ -1083,6 +1163,13 @@ const planMetaStyle = {
   margin: 0,
   color: "#111827",
   fontWeight: 600,
+};
+
+const planFeatureListStyle = {
+  margin: "4px 0 0",
+  paddingLeft: "18px",
+  color: "#4b5563",
+  lineHeight: 1.5,
 };
 
 const planCurrentBadgeStyle = {
@@ -1422,6 +1509,17 @@ function getAuditFiltersFromRequest(request) {
   };
 }
 
+async function getPlanAccess(backend, clientId) {
+  const shopStatus = await backendRequest({
+    backend,
+    pathname: "/shop-status",
+    method: "GET",
+    clientId,
+  });
+
+  return shopStatus?.plan?.features || emptyPlanFeatures;
+}
+
 async function getProductsByIds(admin, ids) {
   const response = await admin.graphql(
     `#graphql
@@ -1446,6 +1544,15 @@ async function getProductsByIds(admin, ids) {
 }
 
 async function buildBulkGenerationInput({ admin, backend, clientId, formData }) {
+  const planFeatures = await getPlanAccess(backend, clientId);
+
+  if (!planFeatures.bulkGenerationEnabled) {
+    return {
+      errorMessage: "Upgrade to Growth or Scale to use bulk generation.",
+      previews: [],
+    };
+  }
+
   const selectedProductIds = formData
     .getAll("productIds")
     .map((value) => String(value || "").trim())
@@ -1585,6 +1692,11 @@ const emptyAuditFilters = {
   vendor: "",
   productType: "",
   collectionId: "",
+};
+
+const emptyPlanFeatures = {
+  presetsEnabled: false,
+  bulkGenerationEnabled: false,
 };
 
 export const headers = (headersArgs) => {
