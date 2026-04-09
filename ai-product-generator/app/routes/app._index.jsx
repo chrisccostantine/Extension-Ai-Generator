@@ -10,7 +10,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 
 const PAYMENT_INSTRUCTIONS_TEXT =
-  "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 936. After payment, submit your transaction reference and optional proof screenshot in the app.";
+  "Transfers through Whish, BOB Finance, OMT, or Bank Audi Neo must be sent to +961 70 221 936. After payment, submit your transaction reference and optional proof screenshot in the app.";
 const SUPPORT_CONTACT_TEXT =
   "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com";
 const PAYMENT_METHOD_OPTIONS = [
