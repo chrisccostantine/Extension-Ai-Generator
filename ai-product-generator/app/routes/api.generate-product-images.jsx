@@ -152,6 +152,15 @@ export const action = async ({ request }) => {
         ok: true,
         message: data.message || "Images generated successfully.",
         images: data.images || [],
+        imageUsage: {
+          count: Number(data?.imageUsage?.count || 0),
+          limit: Number(data?.imageUsage?.limit || 0),
+          remaining: Math.max(
+            0,
+            Number(data?.imageUsage?.limit || 0) - Number(data?.imageUsage?.count || 0),
+          ),
+          period: data?.imageUsage?.period || "",
+        },
       }),
     );
   } catch (error) {

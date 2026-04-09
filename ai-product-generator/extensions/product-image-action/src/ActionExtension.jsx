@@ -20,7 +20,7 @@ function Extension() {
   const [instructions, setInstructions] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [generatedImages, setGeneratedImages] = useState([]);
-  const [remainingImageCredits, setRemainingImageCredits] = useState(0);
+  const [remainingImageCredits, setRemainingImageCredits] = useState(null);
 
   useEffect(() => {
     if (!selectedProductId) {
@@ -82,7 +82,7 @@ function Extension() {
         }
       } catch (_error) {
         if (active) {
-          setRemainingImageCredits(0);
+          setRemainingImageCredits(null);
         }
       }
     })();
@@ -93,7 +93,8 @@ function Extension() {
   }, []);
 
   const imageCountOptions = useMemo(() => {
-    const maxCount = Math.min(4, remainingImageCredits);
+    const maxCount =
+      remainingImageCredits === null ? 4 : Math.min(4, remainingImageCredits);
     if (maxCount <= 0) {
       return [];
     }
@@ -124,7 +125,7 @@ function Extension() {
       return;
     }
 
-    if (remainingImageCredits <= 0) {
+    if (remainingImageCredits !== null && remainingImageCredits <= 0) {
       setMessage("No image credits remaining this month.");
       return;
     }
@@ -158,8 +159,12 @@ function Extension() {
 
       setGeneratedImages(payload.images || []);
       setMessage("Images generated successfully. Save them to the product when ready.");
-      const generatedCount = Array.isArray(payload.images) ? payload.images.length : 0;
-      setRemainingImageCredits((value) => Math.max(0, value - generatedCount));
+      if (payload?.imageUsage && Number.isFinite(Number(payload.imageUsage.remaining))) {
+        setRemainingImageCredits(Math.max(0, Number(payload.imageUsage.remaining)));
+      } else if (remainingImageCredits !== null) {
+        const generatedCount = Array.isArray(payload.images) ? payload.images.length : 0;
+        setRemainingImageCredits((value) => Math.max(0, Number(value || 0) - generatedCount));
+      }
     } catch (error) {
       setMessage(error.message || "Could not generate images.");
     } finally {
@@ -281,9 +286,15 @@ function Extension() {
                 <s-option value="1">No image credits remaining</s-option>
               ) : null}
             </s-select>
-            <s-paragraph>
-              Remaining image credits: {remainingImageCredits}
-            </s-paragraph>
+            {remainingImageCredits !== null ? (
+              <s-paragraph>
+                Remaining image credits: {remainingImageCredits}
+              </s-paragraph>
+            ) : (
+              <s-paragraph>
+                Remaining image credits will be checked when generating.
+              </s-paragraph>
+            )}
 
             <s-text-area
               id="imageInstructions"
@@ -335,7 +346,9 @@ function Extension() {
         slot="primary-action"
         variant="primary"
         onClick={handleGenerate}
-        {...(loading || remainingImageCredits <= 0 ? { loading: loading, disabled: true } : {})}
+        {...(loading || (remainingImageCredits !== null && remainingImageCredits <= 0)
+          ? { loading: loading, disabled: true }
+          : {})}
       >
         {loading ? i18n.translate("generating") : i18n.translate("generate")}
       </s-button>
