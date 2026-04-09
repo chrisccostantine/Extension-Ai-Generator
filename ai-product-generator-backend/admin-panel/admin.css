@@ -155,6 +155,10 @@ button.reject {
   border: 1px solid rgba(140, 153, 194, 0.18);
 }
 
+.requestCard p:last-child {
+  margin-bottom: 0;
+}
+
 .requestMeta {
   flex-wrap: wrap;
   color: #c8d1ee;

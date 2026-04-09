@@ -6,6 +6,7 @@ const logoutButton = document.getElementById("logoutBtn");
 const refreshButton = document.getElementById("refreshBtn");
 const statusFilter = document.getElementById("statusFilter");
 const requestsList = document.getElementById("requestsList");
+const subscriptionsList = document.getElementById("subscriptionsList");
 const statusElement = document.getElementById("status");
 
 const pendingCountElement = document.getElementById("pendingCount");
@@ -39,6 +40,7 @@ logoutButton.addEventListener("click", () => {
   dashboard.classList.add("hidden");
   adminTokenInput.value = "";
   requestsList.innerHTML = "";
+  subscriptionsList.innerHTML = "";
   setStatus("Logged out.");
 });
 
@@ -115,6 +117,7 @@ async function loadDashboard() {
     supportContactElement.textContent = data.supportContact;
 
     await loadRequests();
+    await loadSubscriptions();
     setStatus("Dashboard updated.");
   } catch (error) {
     loginCard.classList.remove("hidden");
@@ -144,6 +147,28 @@ async function loadRequests() {
   } catch (error) {
     requestsList.innerHTML = "";
     setStatus(error.message || "Could not load plan requests.");
+  }
+}
+
+async function loadSubscriptions() {
+  const token = localStorage.getItem(STORAGE_KEY) || "";
+
+  try {
+    const response = await fetch("/admin/api/subscriptions", {
+      headers: {
+        "x-admin-token": token,
+      },
+    });
+    const data = await parseApiResponse(response);
+
+    if (!response.ok) {
+      throw new Error(data.error || "Could not load subscriptions.");
+    }
+
+    renderSubscriptions(data.subscriptions || []);
+  } catch (error) {
+    subscriptionsList.innerHTML = "";
+    setStatus(error.message || "Could not load subscriptions.");
   }
 }
 
@@ -178,6 +203,40 @@ function renderRequests(requests) {
           </div>
           ${renderProofLink(request)}
           ${request.status === "pending" ? renderActions(request.id) : ""}
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderSubscriptions(subscriptions) {
+  if (!subscriptions.length) {
+    subscriptionsList.innerHTML =
+      "<p class='muted'>No subscriptions found yet.</p>";
+    return;
+  }
+
+  subscriptionsList.innerHTML = subscriptions
+    .map(
+      (subscription) => `
+        <article class="requestCard">
+          <div class="requestMeta">
+            <div>
+              <span class="pill ${getSubscriptionPillClass(subscription)}">${escapeHtml(
+                subscription.status || "active",
+              )}</span>
+              <h3>${escapeHtml(subscription.display_name || subscription.client_id)}</h3>
+              <p class="muted">${escapeHtml(subscription.client_id)}</p>
+            </div>
+            <div>
+              <p><strong>${escapeHtml(subscription.plan_name || "free")}</strong></p>
+              <p class="muted">${escapeHtml(subscription.plan_description || "No plan description available.")}</p>
+            </div>
+          </div>
+          <p><strong>Plan window:</strong> ${formatDate(subscription.current_period_start)} to ${formatDate(subscription.current_period_end)}</p>
+          <p><strong>Monthly limit:</strong> ${formatNumber(subscription.monthly_generation_limit)} generations</p>
+          <p><strong>Latest contact:</strong> ${escapeHtml(subscription.latest_contact_name || "Not provided")} | ${escapeHtml(subscription.latest_contact_channel || "Not provided")}</p>
+          <p><strong>Latest payment:</strong> ${escapeHtml(subscription.latest_payment_method || "Not provided")} | Ref: ${escapeHtml(subscription.latest_payment_reference || "Not provided")}</p>
         </article>
       `,
     )
@@ -233,6 +292,14 @@ function escapeAttribute(value) {
     .replace(/>/g, "&gt;");
 }
 
+function getSubscriptionPillClass(subscription) {
+  if (Number(subscription.price_cents || 0) > 0) {
+    return "approved";
+  }
+
+  return "pending";
+}
+
 async function handleRequestAction(action, requestId, adminNotes) {
   const token = localStorage.getItem(STORAGE_KEY) || "";
 
@@ -282,12 +349,21 @@ async function parseApiResponse(response) {
 }
 
 function formatDate(value) {
+  if (!value) {
+    return "No expiry set";
+  }
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "Unknown date";
   }
 
   return date.toLocaleString();
+}
+
+function formatNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number.toLocaleString() : "0";
 }
 
 function escapeHtml(value) {

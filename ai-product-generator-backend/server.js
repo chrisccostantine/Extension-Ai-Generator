@@ -659,6 +659,22 @@ app.get("/admin/api/plan-requests", async (req, res) => {
   }
 });
 
+app.get("/admin/api/subscriptions", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const subscriptions = await listAdminSubscriptions();
+    return res.json({ subscriptions });
+  } catch (error) {
+    console.error("Failed to load subscriptions:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load subscriptions.",
+    });
+  }
+});
+
 app.post("/admin/api/plan-requests/:id/approve", async (req, res) => {
   if (!isAdminAuthorized(req)) {
     return res.status(401).json({ error: "Unauthorized admin access." });
@@ -2189,4 +2205,52 @@ async function getAdminSummary() {
     activeShops: Number(activeShops.rows[0]?.active_shops || 0),
     totalUsageEvents: Number(usageEvents.rows[0]?.total_usage_events || 0),
   };
+}
+
+async function listAdminSubscriptions() {
+  if (!pool) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        subscriptions.id,
+        subscriptions.status,
+        subscriptions.current_period_start,
+        subscriptions.current_period_end,
+        subscriptions.updated_at,
+        shops.id AS shop_id,
+        shops.client_id,
+        shops.display_name,
+        plans.name AS plan_name,
+        plans.description AS plan_description,
+        plans.price_cents,
+        plans.monthly_generation_limit,
+        latest_requests.contact_name AS latest_contact_name,
+        latest_requests.contact_channel AS latest_contact_channel,
+        latest_requests.payment_method AS latest_payment_method,
+        latest_requests.payment_reference AS latest_payment_reference
+      FROM subscriptions
+      JOIN shops ON shops.id = subscriptions.shop_id
+      JOIN plans ON plans.id = subscriptions.plan_id
+      LEFT JOIN LATERAL (
+        SELECT
+          plan_requests.contact_name,
+          plan_requests.contact_channel,
+          plan_requests.payment_method,
+          plan_requests.payment_reference
+        FROM plan_requests
+        WHERE plan_requests.shop_id = shops.id
+        ORDER BY plan_requests.created_at DESC
+        LIMIT 1
+      ) AS latest_requests ON TRUE
+      ORDER BY
+        CASE WHEN plans.price_cents > 0 THEN 0 ELSE 1 END,
+        subscriptions.current_period_end NULLS LAST,
+        shops.display_name ASC
+    `,
+  );
+
+  return result.rows;
 }
