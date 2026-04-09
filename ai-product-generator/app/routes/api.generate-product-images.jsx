@@ -141,10 +141,15 @@ export const action = async ({ request }) => {
       }),
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data.error || "Backend image generation failed.");
+      return cors(
+        Response.json(
+          { error: data.error || "Backend image generation failed." },
+          { status: response.status || 500 },
+        ),
+      );
     }
 
     return cors(
@@ -235,6 +240,9 @@ async function serializeUploadedImages(files) {
     }
 
     const arrayBuffer = await file.arrayBuffer();
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+      continue;
+    }
     const buffer = Buffer.from(arrayBuffer);
     const base64 = buffer.toString("base64");
     const mimeType = String(file.type || guessMimeTypeFromFileName(file.name) || "image/png");
@@ -242,9 +250,9 @@ async function serializeUploadedImages(files) {
 
     uploads.push({
       fileName: file.name,
+      dataUrl: `data:${mimeType};base64,${base64}`,
       mimeType,
       extension,
-      base64,
     });
   }
 
