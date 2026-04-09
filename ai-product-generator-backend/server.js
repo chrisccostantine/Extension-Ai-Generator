@@ -2040,6 +2040,7 @@ async function getPlanForShop(shopId) {
         plans.name,
         plans.description,
         plans.monthly_generation_limit,
+        plans.monthly_image_limit,
         plans.price_cents,
         plans.yearly_price_cents,
         plans.is_active,
