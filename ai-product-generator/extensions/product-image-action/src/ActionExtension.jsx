@@ -329,14 +329,34 @@ function Extension() {
 
         {generatedImages.length ? (
           <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-stack direction="block" gap="tight">
+            <s-stack direction="block" gap="base">
+              <s-paragraph>
+                Preview ({generatedImages.length} image
+                {generatedImages.length === 1 ? "" : "s"})
+              </s-paragraph>
               {generatedImages.map((image, index) => (
-                <img
+                <s-box
                   key={image.id || `generated-${index}`}
-                  src={image.dataUrl}
-                  alt={`Generated product visual ${index + 1}`}
-                  style={imagePreviewStyle}
-                />
+                  padding="tight"
+                  borderWidth="base"
+                  borderRadius="base"
+                >
+                  <s-stack direction="block" gap="tight">
+                    {image?.dataUrl ? (
+                      <s-image
+                        src={image.dataUrl}
+                        alt={`Generated product visual ${index + 1}`}
+                        aspectRatio={1}
+                        objectFit="cover"
+                      />
+                    ) : (
+                      <s-paragraph>
+                        Preview unavailable for image {index + 1}, but it can still be saved.
+                      </s-paragraph>
+                    )}
+                    <s-paragraph>Image {index + 1}</s-paragraph>
+                  </s-stack>
+                </s-box>
               ))}
             </s-stack>
           </s-box>
@@ -368,11 +388,3 @@ function Extension() {
     </s-admin-action>
   );
 }
-
-const imagePreviewStyle = {
-  display: "block",
-  width: "100%",
-  maxWidth: "340px",
-  borderRadius: "10px",
-  marginBottom: "10px",
-};
