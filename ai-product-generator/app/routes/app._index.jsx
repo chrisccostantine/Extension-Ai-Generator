@@ -987,7 +987,7 @@ export default function AppIndex() {
       </s-section>
 
       <s-section heading="Request a paid plan">
-        <Form method="post" action="?index">
+        <Form method="post" action="?index" encType="multipart/form-data">
           <input type="hidden" name="intent" value="request-plan" />
           <s-stack direction="block" gap="base">
             <p style={sectionLabelStyle}>Choose plan</p>
