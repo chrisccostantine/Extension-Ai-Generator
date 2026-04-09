@@ -613,10 +613,19 @@ export const action = async ({ request }) => {
       const stylePreset = String(formData.get("imageStylePreset") || "").trim();
       const outputSize = String(formData.get("imageOutputSize") || "").trim();
       const backgroundStyle = String(formData.get("imageBackgroundStyle") || "").trim();
+      const selectedImageProductId = String(formData.get("imageProductId") || "").trim();
       const files = formData
         .getAll("productImages")
         .filter((value) => value && typeof value === "object");
       const sourceImages = await serializeUploadedImages(files);
+
+      if (!selectedImageProductId) {
+        return {
+          ok: false,
+          intent,
+          message: "Select a product before generating images.",
+        };
+      }
 
       if (!sourceImages.length) {
         return {
@@ -645,8 +654,89 @@ export const action = async ({ request }) => {
         intent,
         message: result.message || "Product images generated successfully.",
         generatedImageJob: result.job,
+        generatedImageJobId: result.job?.id || "",
+        selectedImageProductId,
         generatedImages: result.images || [],
       };
+    }
+
+    if (intent === "save-generated-images-to-product") {
+      if (!planFeatures.imageGenerationEnabled) {
+        return {
+          ok: false,
+          intent,
+          message: "Upgrade to Growth or Scale to save generated images.",
+        };
+      }
+
+      const productId = String(formData.get("imageProductId") || "").trim();
+      const imageJobId = String(formData.get("imageJobId") || "").trim();
+
+      if (!productId) {
+        return {
+          ok: false,
+          intent,
+          imageJobId,
+          selectedImageProductId: productId,
+          message: "Select a product before saving generated images.",
+        };
+      }
+
+      if (!imageJobId) {
+        return {
+          ok: false,
+          intent,
+          imageJobId,
+          selectedImageProductId: productId,
+          message: "Generate images first, then save them to the product.",
+        };
+      }
+
+      const imageJobsPayload = await backendRequest({
+        backend,
+        pathname: "/image-jobs",
+        method: "GET",
+        clientId,
+      });
+      const matchedJob = (imageJobsPayload.jobs || []).find(
+        (job) => String(job.id) === imageJobId,
+      );
+      const generatedImages = matchedJob?.output_images || [];
+
+      if (!generatedImages.length) {
+        return {
+          ok: false,
+          intent,
+          imageJobId,
+          selectedImageProductId: productId,
+          generatedImages,
+          message: "No generated images were found for this image job.",
+        };
+      }
+
+      try {
+        await addImagesToShopifyProduct(admin, { productId, images: generatedImages });
+
+        return {
+          ok: true,
+          intent,
+          imageJobId,
+          selectedImageProductId: productId,
+          generatedImages,
+          message: `Saved ${generatedImages.length} image${
+            generatedImages.length === 1 ? "" : "s"
+          } to the selected product.`,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          intent,
+          imageJobId,
+          selectedImageProductId: productId,
+          generatedImages,
+          message: error.message || "Failed to save generated images to the product.",
+        };
+      }
     }
 
     return {
@@ -683,6 +773,7 @@ export default function AppIndex() {
   const presets = data.presets || [];
   const jobs = data.jobs || [];
   const imageJobs = data.imageJobs || [];
+  const imageTargetProducts = data.audit?.recentProducts || [];
   const auditFilters = data.auditFilters || emptyAuditFilters;
   const planFeatures = data.shopStatus?.plan?.features || emptyPlanFeatures;
   const defaultRequestedPlanName =
@@ -692,9 +783,31 @@ export default function AppIndex() {
   const auditItems = data.audit?.items || [];
   const previewItems =
     actionData?.intent === "preview-bulk-generate-audit" ? actionData.previews || [] : [];
+  const currentImageJobId =
+    actionData?.intent === "generate-image-assets"
+      ? String(actionData.generatedImageJobId || "")
+      : actionData?.intent === "save-generated-images-to-product"
+        ? String(actionData.imageJobId || "")
+        : "";
+  const generatedImagesFromAction =
+    actionData?.intent === "generate-image-assets" ||
+    actionData?.intent === "save-generated-images-to-product"
+      ? actionData.generatedImages || []
+      : [];
   const generatedImages =
-    actionData?.intent === "generate-image-assets" ? actionData.generatedImages || [] : [];
+    generatedImagesFromAction.length > 0
+      ? generatedImagesFromAction
+      : currentImageJobId
+        ? imageJobs.find((job) => String(job.id) === currentImageJobId)?.output_images || []
+        : [];
+  const selectedImageProductId =
+    actionData?.intent === "generate-image-assets" ||
+    actionData?.intent === "save-generated-images-to-product"
+      ? String(actionData.selectedImageProductId || "")
+      : "";
   const [billingInterval, setBillingInterval] = useState("monthly");
+  const [imageFormResetKey, setImageFormResetKey] = useState(0);
+  const [hideImageResults, setHideImageResults] = useState(false);
   const onboardingChecklist = buildOnboardingChecklist({
     profile,
     presets,
@@ -1243,6 +1356,174 @@ export default function AppIndex() {
             </Form>
           </s-stack>
         ) : null}
+
+        <s-stack direction="block" gap="base">
+          <s-heading>Product image generator</s-heading>
+          <s-paragraph>
+            Generate images for one product, then save them immediately to that Shopify
+            product.
+          </s-paragraph>
+
+          {!planFeatures.imageGenerationEnabled ? (
+            <div style={getNoticeStyle(false)}>
+              Product image generation is available on the Growth and Scale plans.
+            </div>
+          ) : !imageTargetProducts.length ? (
+            <div style={getNoticeStyle(false)}>
+              No recent products available yet. Refresh status and try again.
+            </div>
+          ) : (
+            <>
+              <Form
+                key={`image-generation-form-${imageFormResetKey}`}
+                method="post"
+                action="?index"
+                encType="multipart/form-data"
+              >
+                <input type="hidden" name="intent" value="generate-image-assets" />
+                <div style={presetFormGridStyle}>
+                  <div>
+                    <label htmlFor="imageProductId">Product</label>
+                    <select
+                      id="imageProductId"
+                      name="imageProductId"
+                      style={inputStyle}
+                      defaultValue={selectedImageProductId || imageTargetProducts[0]?.id || ""}
+                    >
+                      {imageTargetProducts.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="imageStylePreset">Style preset</label>
+                    <select
+                      id="imageStylePreset"
+                      name="imageStylePreset"
+                      style={inputStyle}
+                      defaultValue="clean-studio"
+                    >
+                      <option value="clean-studio">Clean studio</option>
+                      <option value="luxury-studio">Luxury studio</option>
+                      <option value="white-background">White background</option>
+                      <option value="soft-shadow">Soft shadow</option>
+                      <option value="social-ready">Social ready</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="imageOutputSize">Output size</label>
+                    <select
+                      id="imageOutputSize"
+                      name="imageOutputSize"
+                      style={inputStyle}
+                      defaultValue="1024x1024"
+                    >
+                      <option value="1024x1024">Square</option>
+                      <option value="1536x1024">Landscape</option>
+                      <option value="1024x1536">Portrait</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="imageBackgroundStyle">Background</label>
+                    <select
+                      id="imageBackgroundStyle"
+                      name="imageBackgroundStyle"
+                      style={inputStyle}
+                      defaultValue="white"
+                    >
+                      <option value="white">White</option>
+                      <option value="soft-gray">Soft gray</option>
+                      <option value="transparent">Transparent</option>
+                    </select>
+                  </div>
+                </div>
+
+                <label htmlFor="imageInstructions">Image instructions</label>
+                <textarea
+                  id="imageInstructions"
+                  name="imageInstructions"
+                  rows="4"
+                  placeholder="Example: Clean white background, preserve logo details, add a soft natural shadow, and make it look premium but realistic."
+                  style={inputStyle}
+                />
+
+                <label htmlFor="productImages">Product images</label>
+                <input
+                  id="productImages"
+                  name="productImages"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  style={inputStyle}
+                />
+
+                <s-button
+                  type="submit"
+                  variant="secondary"
+                  onClick={() => setHideImageResults(false)}
+                >
+                  Generate product images
+                </s-button>
+              </Form>
+
+              {actionData?.message &&
+              (actionData.intent === "generate-image-assets" ||
+                actionData.intent === "save-generated-images-to-product") ? (
+                <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+              ) : null}
+
+              {generatedImages.length && !hideImageResults ? (
+                <s-stack direction="block" gap="base">
+                  <div style={imageGridStyle}>
+                    {generatedImages.map((image) => (
+                      <div key={image.id} style={imageCardStyle}>
+                        <img
+                          src={image.dataUrl}
+                          alt="Generated product visual"
+                          style={imagePreviewStyle}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div style={bulkActionRowStyle}>
+                    <Form method="post" action="?index">
+                      <input
+                        type="hidden"
+                        name="intent"
+                        value="save-generated-images-to-product"
+                      />
+                      <input
+                        type="hidden"
+                        name="imageProductId"
+                        value={selectedImageProductId || imageTargetProducts[0]?.id || ""}
+                      />
+                      <input type="hidden" name="imageJobId" value={currentImageJobId} />
+                      <s-button
+                        type="submit"
+                        variant="secondary"
+                        disabled={!currentImageJobId}
+                      >
+                        Save images to product
+                      </s-button>
+                    </Form>
+                    <s-button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setImageFormResetKey((value) => value + 1);
+                        setHideImageResults(true);
+                      }}
+                    >
+                      Regenerate
+                    </s-button>
+                  </div>
+                </s-stack>
+              ) : null}
+            </>
+          )}
+        </s-stack>
       </s-section>
 
       <s-section heading="Catalog job history">
@@ -1279,146 +1560,6 @@ export default function AppIndex() {
           <div style={getNoticeStyle(false)}>
             No bulk job history yet. Your future previews and applies will appear here.
           </div>
-        )}
-      </s-section>
-
-      <s-section heading="Product image studio">
-        <s-stack direction="block" gap="base">
-          <s-paragraph>
-            Upload raw product photos, describe the look you want, and generate website-ready ecommerce images for Shopify.
-          </s-paragraph>
-          {Number(data.shopStatus?.plan?.monthly_image_limit || 0) > 0 && (
-            <s-paragraph>
-              Image credits used this month: {data.shopStatus?.imageUsage?.count || 0} /{" "}
-              {data.shopStatus?.plan?.monthly_image_limit || 0}
-            </s-paragraph>
-          )}
-        </s-stack>
-
-        {!planFeatures.imageGenerationEnabled ? (
-          <div style={getNoticeStyle(false)}>
-            Product image generation is available on the Growth and Scale plans.
-          </div>
-        ) : (
-          <>
-            <Form method="post" action="?index" encType="multipart/form-data">
-              <input type="hidden" name="intent" value="generate-image-assets" />
-              <div style={presetFormGridStyle}>
-                <div>
-                  <label htmlFor="imageStylePreset">Style preset</label>
-                  <select
-                    id="imageStylePreset"
-                    name="imageStylePreset"
-                    style={inputStyle}
-                    defaultValue="clean-studio"
-                  >
-                    <option value="clean-studio">Clean studio</option>
-                    <option value="luxury-studio">Luxury studio</option>
-                    <option value="white-background">White background</option>
-                    <option value="soft-shadow">Soft shadow</option>
-                    <option value="social-ready">Social ready</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="imageOutputSize">Output size</label>
-                  <select
-                    id="imageOutputSize"
-                    name="imageOutputSize"
-                    style={inputStyle}
-                    defaultValue="1024x1024"
-                  >
-                    <option value="1024x1024">Square</option>
-                    <option value="1536x1024">Landscape</option>
-                    <option value="1024x1536">Portrait</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="imageBackgroundStyle">Background</label>
-                  <select
-                    id="imageBackgroundStyle"
-                    name="imageBackgroundStyle"
-                    style={inputStyle}
-                    defaultValue="white"
-                  >
-                    <option value="white">White</option>
-                    <option value="soft-gray">Soft gray</option>
-                    <option value="transparent">Transparent</option>
-                  </select>
-                </div>
-              </div>
-
-              <label htmlFor="imageInstructions">Image instructions</label>
-              <textarea
-                id="imageInstructions"
-                name="imageInstructions"
-                rows="4"
-                placeholder="Example: Clean white background, preserve logo details, add a soft natural shadow, and make it look premium but realistic."
-                style={inputStyle}
-              />
-
-              <label htmlFor="productImages">Product images</label>
-              <input
-                id="productImages"
-                name="productImages"
-                type="file"
-                accept="image/*"
-                multiple
-                style={inputStyle}
-              />
-
-              <s-button type="submit" variant="secondary">
-                Generate product images
-              </s-button>
-            </Form>
-
-            {actionData?.message && actionData.intent === "generate-image-assets" && (
-              <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
-            )}
-
-            {generatedImages.length ? (
-              <div style={imageGridStyle}>
-                {generatedImages.map((image) => (
-                  <div key={image.id} style={imageCardStyle}>
-                    <img src={image.dataUrl} alt="Generated product visual" style={imagePreviewStyle} />
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {imageJobs.length ? (
-              <div style={presetListStyle}>
-                {imageJobs.map((job) => (
-                  <div key={job.id} style={presetCardStyle}>
-                    <div style={presetCardHeaderStyle}>
-                      <strong>{capitalizePlanName(job.style_preset)}</strong>
-                      <span style={presetTagStyle}>
-                        {capitalizePlanName(job.status)} | {job.output_size}
-                      </span>
-                    </div>
-                    <p style={presetDescriptionTextStyle}>
-                      {job.instruction_text || "No extra image instructions provided."}
-                    </p>
-                    <p style={auditMetaStyle}>
-                      {job.source_image_count} source image{job.source_image_count === 1 ? "" : "s"} | {capitalizePlanName(job.background_style)} background
-                    </p>
-                    {job.output_images?.length ? (
-                      <div style={imageGridStyle}>
-                        {job.output_images.map((image) => (
-                          <div key={`${job.id}-${image.id}`} style={imageCardStyle}>
-                            <img src={image.dataUrl} alt="Saved generated product visual" style={imagePreviewStyle} />
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={getNoticeStyle(false)}>
-                No image jobs yet. Your generated product visuals will appear here.
-              </div>
-            )}
-          </>
         )}
       </s-section>
 
@@ -2513,6 +2654,10 @@ async function getCatalogAudit(admin, filters) {
     totalCount: products.length,
     flaggedCount: items.length,
     items,
+    recentProducts: products.map((product) => ({
+      id: product.id,
+      title: product.title,
+    })),
     averageScore: items.length
       ? Math.round(
           items.reduce((total, item) => total + Number(item.score || 0), 0) / items.length,
@@ -2682,6 +2827,45 @@ async function updateShopifyProduct(admin, { productId, generated }) {
   }
 }
 
+async function addImagesToShopifyProduct(admin, { productId, images }) {
+  const mediaInputs = (images || [])
+    .filter((image) => Boolean(image?.dataUrl))
+    .map((image, index) => ({
+      mediaContentType: "IMAGE",
+      originalSource: image.dataUrl,
+      alt: image.alt || `Generated product image ${index + 1}`,
+    }));
+
+  if (!mediaInputs.length) {
+    throw new Error("No generated images are available to save.");
+  }
+
+  const response = await admin.graphql(
+    `#graphql
+      mutation ProductCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+        productCreateMedia(productId: $productId, media: $media) {
+          mediaUserErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      variables: {
+        productId,
+        media: mediaInputs,
+      },
+    },
+  );
+  const payload = await response.json();
+  const mediaUserErrors = payload?.data?.productCreateMedia?.mediaUserErrors || [];
+
+  if (mediaUserErrors.length > 0) {
+    throw new Error(mediaUserErrors[0]?.message || "Shopify rejected the generated images.");
+  }
+}
+
 function buildDescriptionHtml(data) {
   return [
     `<p><strong>${escapeHtml(data.subtitle || "")}</strong></p>`,
@@ -2741,6 +2925,7 @@ const emptyAuditFilters = {
 const emptyPlanFeatures = {
   presetsEnabled: false,
   bulkGenerationEnabled: false,
+  imageGenerationEnabled: false,
 };
 
 export const headers = (headersArgs) => {
