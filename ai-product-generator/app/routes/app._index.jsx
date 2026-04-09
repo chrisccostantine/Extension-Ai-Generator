@@ -1015,6 +1015,19 @@ export default function AppIndex() {
               <div style={getNoticeStyle(false)}>No paid plans available right now.</div>
             )}
 
+            <div style={paymentNoticeStyle}>
+              <strong>Payment destination</strong>
+              <p style={paymentNoticeTextStyle}>
+                {data.paymentInstructions ||
+                  "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 936."}
+              </p>
+              {data.supportContact && (
+                <p style={paymentNoticeTextStyle}>
+                  <strong>Confirmation contact:</strong> {data.supportContact}
+                </p>
+              )}
+            </div>
+
             <label htmlFor="contactName">Your name</label>
             <input
               id="contactName"
@@ -1412,6 +1425,21 @@ const sectionLabelStyle = {
   margin: 0,
   fontWeight: 600,
   color: "#111827",
+};
+
+const paymentNoticeStyle = {
+  display: "grid",
+  gap: "8px",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #f59e0b",
+  background: "#fffbeb",
+};
+
+const paymentNoticeTextStyle = {
+  margin: 0,
+  color: "#111827",
+  lineHeight: 1.5,
 };
 
 function getNoticeStyle(isSuccess) {
