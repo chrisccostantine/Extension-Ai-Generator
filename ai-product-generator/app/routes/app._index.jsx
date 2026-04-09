@@ -19,19 +19,22 @@ const PAYMENT_METHOD_OPTIONS = [
   "BOB Finance",
   "Bank Audi Neo",
 ];
-const BACKEND_REQUEST_TIMEOUT_MS = 2500;
-const LOADER_AUDIT_TIMEOUT_MS = 2500;
+const BACKEND_REQUEST_TIMEOUT_MS = 1200;
+const LOADER_AUDIT_TIMEOUT_MS = 1200;
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
   const auditFilters = getAuditFiltersFromRequest(request);
-  const audit = await withTimeout(
-    getCatalogAudit(admin, auditFilters),
-    LOADER_AUDIT_TIMEOUT_MS,
-    "Catalog audit timed out.",
-  ).catch(() => emptyAuditData);
+  const shouldLoadAudit = auditFilters.loadAudit;
+  const audit = shouldLoadAudit
+    ? await withTimeout(
+        getCatalogAudit(admin, auditFilters),
+        LOADER_AUDIT_TIMEOUT_MS,
+        "Catalog audit timed out.",
+      ).catch(() => emptyAuditData)
+    : emptyAuditData;
 
   if (!backend.baseUrl) {
     return {
@@ -43,13 +46,14 @@ export const loader = async ({ request }) => {
       paymentInstructions: "",
       supportContact: "",
       audit,
+      auditLoaded: shouldLoadAudit,
       auditFilters,
       presets: [],
     };
   }
 
   try {
-    const [shopStatusResult, plansResult] = await Promise.allSettled([
+    const [shopStatusResult, plansResult, jobsResult, imageJobsResult] = await Promise.allSettled([
       backendRequest({
         backend,
         pathname: "/shop-status",
@@ -61,12 +65,6 @@ export const loader = async ({ request }) => {
         pathname: "/plans",
         method: "GET",
       }),
-    ]);
-    const shopStatus =
-      shopStatusResult.status === "fulfilled" ? shopStatusResult.value : null;
-    const plansPayload =
-      plansResult.status === "fulfilled" ? plansResult.value : { plans: [] };
-    const [jobsResult, imageJobsResult, presetsResult] = await Promise.allSettled([
       backendRequest({
         backend,
         pathname: "/catalog-jobs",
@@ -79,15 +77,25 @@ export const loader = async ({ request }) => {
         method: "GET",
         clientId,
       }),
-      shopStatus?.plan?.features?.presetsEnabled
-        ? backendRequest({
+    ]);
+    const shopStatus =
+      shopStatusResult.status === "fulfilled" ? shopStatusResult.value : null;
+    const plansPayload =
+      plansResult.status === "fulfilled" ? plansResult.value : { plans: [] };
+    const presetsResult = shopStatus?.plan?.features?.presetsEnabled
+      ? await Promise.race([
+          backendRequest({
             backend,
             pathname: "/content-presets",
             method: "GET",
             clientId,
-          })
-        : Promise.resolve({ presets: [] }),
-    ]);
+            timeoutMs: 900,
+          }).then((value) => ({ status: "fulfilled", value })),
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ status: "rejected" }), 900),
+          ),
+        ])
+      : { status: "fulfilled", value: { presets: [] } };
 
     return {
       backendConfigured:
@@ -103,6 +111,7 @@ export const loader = async ({ request }) => {
       paymentInstructions: plansPayload.paymentInstructions || "",
       supportContact: plansPayload.supportContact || "",
       audit,
+      auditLoaded: shouldLoadAudit,
       auditFilters,
       presets: presetsResult.status === "fulfilled" ? presetsResult.value.presets || [] : [],
       jobs: jobsResult.status === "fulfilled" ? jobsResult.value.jobs || [] : [],
@@ -119,6 +128,7 @@ export const loader = async ({ request }) => {
       paymentInstructions: "",
       supportContact: "",
       audit,
+      auditLoaded: shouldLoadAudit,
       auditFilters,
       presets: [],
       jobs: [],
@@ -795,6 +805,7 @@ export default function AppIndex() {
   const imageTargetProducts = data.audit?.recentProducts || [];
   const auditFilters = data.auditFilters || emptyAuditFilters;
   const planFeatures = data.shopStatus?.plan?.features || emptyPlanFeatures;
+  const auditLoaded = Boolean(data.auditLoaded);
   const defaultRequestedPlanName =
     paidPlans.find((plan) => plan.name !== currentPlanName)?.name ||
     paidPlans[0]?.name ||
@@ -1039,14 +1050,21 @@ export default function AppIndex() {
       <s-section heading="Catalog audit">
         <s-stack direction="block" gap="base">
           <s-paragraph>
-            {data.audit
+            {auditLoaded && data.audit
               ? `${data.audit.flaggedCount} of ${data.audit.totalCount} recent products need content improvements. Average content score: ${data.audit.averageScore || 100}/100.`
-              : "Audit data is not available right now."}
+              : "Catalog audit is paused for faster app load. Click Load audit when you want to review products."}
           </s-paragraph>
           <s-paragraph>
             Review missing or weak descriptions, missing SEO content, and then generate improved copy in bulk.
           </s-paragraph>
         </s-stack>
+
+        {!auditLoaded ? (
+          <Form method="get">
+            <input type="hidden" name="loadAudit" value="1" />
+            <s-button type="submit" variant="secondary">Load audit now</s-button>
+          </Form>
+        ) : null}
 
         {!planFeatures.bulkGenerationEnabled && (
           <div style={getNoticeStyle(false)}>
@@ -1055,6 +1073,7 @@ export default function AppIndex() {
         )}
 
         <Form method="get">
+          <input type="hidden" name="loadAudit" value="1" />
           <div style={auditFilterGridStyle}>
             <div>
               <label htmlFor="q">Search</label>
@@ -2755,6 +2774,7 @@ async function getCatalogAudit(admin, filters) {
 function getAuditFiltersFromRequest(request) {
   const url = new URL(request.url);
   return {
+    loadAudit: String(url.searchParams.get("loadAudit") || "").trim() === "1",
     q: String(url.searchParams.get("q") || "").trim(),
     issueType: String(url.searchParams.get("issueType") || "").trim(),
     vendor: String(url.searchParams.get("vendor") || "").trim(),
@@ -3025,6 +3045,7 @@ function escapeHtml(text) {
 }
 
 const emptyAuditFilters = {
+  loadAudit: false,
   q: "",
   issueType: "",
   vendor: "",
