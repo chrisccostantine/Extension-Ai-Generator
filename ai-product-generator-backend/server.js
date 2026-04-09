@@ -15,9 +15,9 @@ const requiredAccessToken = process.env.ACCESS_TOKEN || "";
 const adminPanelToken = process.env.ADMIN_PANEL_TOKEN || "";
 const paymentInstructions =
   process.env.PAYMENT_INSTRUCTIONS ||
-  "After choosing a paid plan, send your payment locally and include the transaction reference in your request. You can also upload a payment proof screenshot.";
+  "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 396. After payment, submit your transaction reference and optional proof screenshot in the app.";
 const supportContact =
-  process.env.SUPPORT_CONTACT || "Contact support to confirm your payment.";
+  process.env.SUPPORT_CONTACT || "WhatsApp +961 70 221 396";
 const maxProofDataUrlLength = 2500000;
 const defaultAllowedOrigins = [
   "http://localhost:3000",
@@ -352,7 +352,11 @@ app.post("/plan-requests", async (req, res) => {
         ? req.body.requestedPlanName.trim().toLowerCase()
         : "";
     const contactName = sanitizeText(req.body?.contactName, 120);
-    const contactChannel = sanitizeText(req.body?.contactChannel, 200);
+    const phoneNumber = sanitizeText(req.body?.phoneNumber, 60);
+    const email = sanitizeText(req.body?.email, 160);
+    const contactChannel = [phoneNumber ? `Phone: ${phoneNumber}` : "", email ? `Email: ${email}` : ""]
+      .filter(Boolean)
+      .join(" | ");
     const paymentMethod = sanitizeText(req.body?.paymentMethod, 80);
     const paymentReference = sanitizeText(req.body?.paymentReference, 160);
     const customerNotes = sanitizeText(req.body?.notes, 1000);
@@ -364,10 +368,16 @@ app.post("/plan-requests", async (req, res) => {
       return res.status(400).json({ error: "Requested plan is required." });
     }
 
-    if (!contactChannel) {
+    if (!contactName) {
       return res
         .status(400)
-        .json({ error: "Please provide a contact channel for follow-up." });
+        .json({ error: "Please provide your full name." });
+    }
+
+    if (!phoneNumber) {
+      return res
+        .status(400)
+        .json({ error: "Please provide a phone number for follow-up." });
     }
 
     const shop = await ensureShop(clientId);

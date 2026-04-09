@@ -1,4 +1,4 @@
-/* global process */
+/* global Buffer, process */
 import { useMemo } from "react";
 import {
   Form,
@@ -335,12 +335,32 @@ export const action = async ({ request }) => {
         .trim()
         .toLowerCase();
       const contactName = String(formData.get("contactName") || "").trim();
-      const contactChannel = String(formData.get("contactChannel") || "").trim();
+      const phoneNumber = String(formData.get("phoneNumber") || "").trim();
+      const email = String(formData.get("email") || "").trim();
       const paymentMethod = String(formData.get("paymentMethod") || "").trim();
       const paymentReference = String(
         formData.get("paymentReference") || "",
       ).trim();
       const notes = String(formData.get("notes") || "").trim();
+      const proofFile = formData.get("proofFile");
+
+      if (!contactName) {
+        return {
+          ok: false,
+          intent,
+          message: "Your name is required.",
+        };
+      }
+
+      if (!phoneNumber) {
+        return {
+          ok: false,
+          intent,
+          message: "Phone number is required.",
+        };
+      }
+
+      const proofPayload = await serializeUploadedProof(proofFile);
 
       const result = await backendRequest({
         backend,
@@ -350,10 +370,12 @@ export const action = async ({ request }) => {
           clientId,
           requestedPlanName,
           contactName,
-          contactChannel,
+          phoneNumber,
+          email,
           paymentMethod,
           paymentReference,
           notes,
+          ...proofPayload,
         },
       });
 
@@ -636,7 +658,7 @@ export default function AppIndex() {
           <s-button type="submit" variant="secondary">Apply filters</s-button>
         </Form>
 
-        <Form method="post" action="?index">
+        <Form method="post" action="?index" encType="multipart/form-data">
           <input type="hidden" name="intent" value="bulk-generate-audit" />
           <s-stack direction="block" gap="base">
             {needsProfile && (
@@ -881,7 +903,7 @@ export default function AppIndex() {
       <s-section
         heading={needsProfile ? "Business onboarding" : "Business profile"}
       >
-        <Form method="post" action="?index">
+        <Form method="post" action="?index" encType="multipart/form-data">
           <input type="hidden" name="intent" value="save-profile" />
           <s-stack direction="block" gap="base">
             <label htmlFor="businessType">Business type</label>
@@ -998,16 +1020,27 @@ export default function AppIndex() {
               id="contactName"
               name="contactName"
               type="text"
-              placeholder="Optional name"
+              placeholder="Required full name"
               style={inputStyle}
+              required
             />
 
-            <label htmlFor="contactChannel">WhatsApp / Email / Phone</label>
+            <label htmlFor="phoneNumber">Phone number</label>
             <input
-              id="contactChannel"
-              name="contactChannel"
+              id="phoneNumber"
+              name="phoneNumber"
               type="text"
-              placeholder="Required contact info"
+              placeholder="Required phone number"
+              style={inputStyle}
+              required
+            />
+
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              placeholder="Optional email address"
               style={inputStyle}
             />
 
@@ -1016,7 +1049,7 @@ export default function AppIndex() {
               id="paymentMethod"
               name="paymentMethod"
               type="text"
-              placeholder="OMT, bank transfer, cash, Whish..."
+              placeholder="OMT, Whish, BOB Finance, bank transfer..."
               style={inputStyle}
             />
 
@@ -1035,6 +1068,15 @@ export default function AppIndex() {
               name="notes"
               rows="4"
               placeholder="Any extra context for the request"
+              style={inputStyle}
+            />
+
+            <label htmlFor="proofFile">Transaction screenshot</label>
+            <input
+              id="proofFile"
+              name="proofFile"
+              type="file"
+              accept="image/*"
               style={inputStyle}
             />
 
@@ -1109,6 +1151,31 @@ async function backendRequest({ backend, pathname, method, clientId, body }) {
   }
 
   return data;
+}
+
+async function serializeUploadedProof(file) {
+  if (
+    !file ||
+    typeof file !== "object" ||
+    typeof file.arrayBuffer !== "function" ||
+    !("size" in file) ||
+    file.size === 0
+  ) {
+    return {};
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const base64 = bufferToBase64(arrayBuffer);
+
+  return {
+    proofFileName: file.name || "",
+    proofMimeType: file.type || "",
+    proofDataUrl: `data:${file.type || "application/octet-stream"};base64,${base64}`,
+  };
+}
+
+function bufferToBase64(arrayBuffer) {
+  return Buffer.from(arrayBuffer).toString("base64");
 }
 
 const inputStyle = {
