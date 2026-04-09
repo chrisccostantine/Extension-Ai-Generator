@@ -213,7 +213,24 @@ function renderProofLink(request) {
   }
 
   const label = request.proof_file_name || "View uploaded proof";
-  return `<p><a class="proofLink" href="${request.proof_data_url}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a></p>`;
+  const safeDataUrl = escapeAttribute(request.proof_data_url);
+  const safeLabel = escapeHtml(label);
+
+  return `
+    <div class="proofPreview">
+      <strong>Payment proof</strong>
+      <img class="proofImage" src="${safeDataUrl}" alt="${safeLabel}" />
+      <p><a class="proofLink" href="${safeDataUrl}" target="_blank" rel="noreferrer">${safeLabel}</a></p>
+    </div>
+  `;
+}
+
+function escapeAttribute(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 async function handleRequestAction(action, requestId, adminNotes) {
