@@ -1,6 +1,6 @@
 import "@shopify/ui-extensions/preact";
 import { render } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 
 export default async () => {
   render(<Extension />, document.body);
@@ -20,6 +20,7 @@ function Extension() {
   const [instructions, setInstructions] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [generatedImages, setGeneratedImages] = useState([]);
+  const [remainingImageCredits, setRemainingImageCredits] = useState(0);
 
   useEffect(() => {
     if (!selectedProductId) {
@@ -63,6 +64,55 @@ function Extension() {
     };
   }, [selectedProductId]);
 
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/generate-product-images");
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Could not load image credit availability.");
+        }
+
+        if (active) {
+          const remaining = Number(payload?.imageUsage?.remaining || 0);
+          setRemainingImageCredits(Math.max(0, remaining));
+        }
+      } catch (_error) {
+        if (active) {
+          setRemainingImageCredits(0);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const imageCountOptions = useMemo(() => {
+    const maxCount = Math.min(4, remainingImageCredits);
+    if (maxCount <= 0) {
+      return [];
+    }
+
+    return Array.from({ length: maxCount }, (_, index) => index + 1);
+  }, [remainingImageCredits]);
+
+  useEffect(() => {
+    if (!imageCountOptions.length) {
+      setImageCount("1");
+      return;
+    }
+
+    const selected = Number.parseInt(imageCount, 10);
+    if (!imageCountOptions.includes(selected)) {
+      setImageCount(String(imageCountOptions[0]));
+    }
+  }, [imageCount, imageCountOptions]);
+
   async function handleGenerate() {
     if (!selectedProductId) {
       setMessage("No product was selected.");
@@ -71,6 +121,11 @@ function Extension() {
 
     if (!selectedFiles.length) {
       setMessage("Upload at least one source image before generating.");
+      return;
+    }
+
+    if (remainingImageCredits <= 0) {
+      setMessage("No image credits remaining this month.");
       return;
     }
 
@@ -103,6 +158,8 @@ function Extension() {
 
       setGeneratedImages(payload.images || []);
       setMessage("Images generated successfully. Save them to the product when ready.");
+      const generatedCount = Array.isArray(payload.images) ? payload.images.length : 0;
+      setRemainingImageCredits((value) => Math.max(0, value - generatedCount));
     } catch (error) {
       setMessage(error.message || "Could not generate images.");
     } finally {
@@ -213,12 +270,20 @@ function Extension() {
               label="Number of images"
               value={imageCount}
               onChange={(event) => setImageCount(event.currentTarget.value)}
+              disabled={!imageCountOptions.length}
             >
-              <s-option value="1">1 image</s-option>
-              <s-option value="2">2 images</s-option>
-              <s-option value="3">3 images</s-option>
-              <s-option value="4">4 images</s-option>
+              {imageCountOptions.map((count) => (
+                <s-option key={`image-count-${count}`} value={String(count)}>
+                  {count} image{count === 1 ? "" : "s"}
+                </s-option>
+              ))}
+              {!imageCountOptions.length ? (
+                <s-option value="1">No image credits remaining</s-option>
+              ) : null}
             </s-select>
+            <s-paragraph>
+              Remaining image credits: {remainingImageCredits}
+            </s-paragraph>
 
             <s-text-area
               id="imageInstructions"
@@ -270,7 +335,7 @@ function Extension() {
         slot="primary-action"
         variant="primary"
         onClick={handleGenerate}
-        {...(loading ? { loading: true, disabled: true } : {})}
+        {...(loading || remainingImageCredits <= 0 ? { loading: loading, disabled: true } : {})}
       >
         {loading ? i18n.translate("generating") : i18n.translate("generate")}
       </s-button>

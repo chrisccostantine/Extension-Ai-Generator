@@ -827,6 +827,9 @@ export default function AppIndex() {
   const [billingInterval, setBillingInterval] = useState("monthly");
   const [imageFormResetKey, setImageFormResetKey] = useState(0);
   const [hideImageResults, setHideImageResults] = useState(false);
+  const imageCreditsRemaining = getRemainingImageCredits(data.shopStatus);
+  const maxSelectableImageCount = Math.min(4, imageCreditsRemaining);
+  const imageCountOptions = buildImageCountOptions(maxSelectableImageCount);
   const onboardingChecklist = buildOnboardingChecklist({
     profile,
     presets,
@@ -879,10 +882,15 @@ export default function AppIndex() {
               : data.backendError || "Backend is not connected yet."}
           </s-paragraph>
           {Number(data.shopStatus?.plan?.monthly_image_limit || 0) > 0 && (
-            <s-paragraph>
-              Used {data.shopStatus?.imageUsage?.count || 0} of{" "}
-              {data.shopStatus?.plan?.monthly_image_limit || 0} image credits this month.
-            </s-paragraph>
+            <>
+              <s-paragraph>
+                Used {data.shopStatus?.imageUsage?.count || 0} of{" "}
+                {data.shopStatus?.plan?.monthly_image_limit || 0} image credits this month.
+              </s-paragraph>
+              <s-paragraph>
+                Remaining image credits: {Math.max(0, imageCreditsRemaining)}
+              </s-paragraph>
+            </>
           )}
           {data.shopStatus?.latestRequest && (
             <s-paragraph>
@@ -1464,11 +1472,16 @@ export default function AppIndex() {
                       name="imageCount"
                       style={inputStyle}
                       defaultValue="1"
+                      disabled={maxSelectableImageCount <= 0}
                     >
-                      <option value="1">1 image</option>
-                      <option value="2">2 images</option>
-                      <option value="3">3 images</option>
-                      <option value="4">4 images</option>
+                      {imageCountOptions.map((count) => (
+                        <option key={`image-count-${count}`} value={String(count)}>
+                          {count} image{count === 1 ? "" : "s"}
+                        </option>
+                      ))}
+                      {!imageCountOptions.length ? (
+                        <option value="1">No image credits remaining</option>
+                      ) : null}
                     </select>
                   </div>
                 </div>
@@ -1496,6 +1509,7 @@ export default function AppIndex() {
                   type="submit"
                   variant="secondary"
                   onClick={() => setHideImageResults(false)}
+                  disabled={maxSelectableImageCount <= 0}
                 >
                   Generate product images
                 </s-button>
@@ -2972,6 +2986,17 @@ function formatDateTime(value) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
+function getRemainingImageCredits(shopStatus) {
+  const limit = Number(shopStatus?.plan?.monthly_image_limit || 0);
+  const used = Number(shopStatus?.imageUsage?.count || 0);
+  return Math.max(0, limit - used);
+}
+
+function buildImageCountOptions(maxCount) {
+  const numericMax = Math.max(0, Number(maxCount || 0));
+  return Array.from({ length: numericMax }, (_, index) => index + 1);
 }
 
 function normalizeImageCount(value) {

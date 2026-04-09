@@ -1,6 +1,63 @@
 /* global Buffer, process */
 import { authenticate } from "../shopify.server";
 
+export const loader = async ({ request }) => {
+  const { session, cors } = await authenticate.admin(request);
+  const backend = getBackendConfig();
+
+  if (!backend.baseUrl) {
+    return cors(
+      Response.json(
+        { error: "BACKEND_API_URL is not configured in the Shopify app." },
+        { status: 500 },
+      ),
+    );
+  }
+
+  try {
+    const clientId = toClientId(session.shop);
+    const statusResponse = await fetch(
+      `${backend.baseUrl}/shop-status?clientId=${encodeURIComponent(clientId)}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(backend.extensionToken ? { "x-extension-token": backend.extensionToken } : {}),
+        },
+      },
+    );
+    const statusPayload = await statusResponse.json();
+
+    if (!statusResponse.ok) {
+      throw new Error(statusPayload.error || "Could not load image availability.");
+    }
+
+    const limit = Number(statusPayload?.plan?.monthly_image_limit || 0);
+    const used = Number(statusPayload?.imageUsage?.count || 0);
+    const remaining = Math.max(0, limit - used);
+    const imageGenerationEnabled = Boolean(statusPayload?.plan?.features?.imageGenerationEnabled);
+
+    return cors(
+      Response.json({
+        ok: true,
+        imageGenerationEnabled,
+        imageUsage: {
+          count: used,
+          limit,
+          remaining,
+        },
+      }),
+    );
+  } catch (error) {
+    return cors(
+      Response.json(
+        { error: error?.message || "Could not load image availability." },
+        { status: 500 },
+      ),
+    );
+  }
+};
+
 export const action = async ({ request }) => {
   const { admin, session, cors } = await authenticate.admin(request);
   const backend = getBackendConfig();
