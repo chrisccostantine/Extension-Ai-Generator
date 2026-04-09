@@ -19,7 +19,7 @@ const PAYMENT_METHOD_OPTIONS = [
   "BOB Finance",
   "Bank Audi Neo",
 ];
-const BACKEND_REQUEST_TIMEOUT_MS = 1200;
+const BACKEND_REQUEST_TIMEOUT_MS = 3500;
 const LOADER_AUDIT_TIMEOUT_MS = 1200;
 
 export const loader = async ({ request }) => {
@@ -53,7 +53,7 @@ export const loader = async ({ request }) => {
   }
 
   try {
-    const [shopStatusResult, plansResult, jobsResult, imageJobsResult] = await Promise.allSettled([
+    const [shopStatusResult, plansResult] = await Promise.allSettled([
       backendRequest({
         backend,
         pathname: "/shop-status",
@@ -65,37 +65,12 @@ export const loader = async ({ request }) => {
         pathname: "/plans",
         method: "GET",
       }),
-      backendRequest({
-        backend,
-        pathname: "/catalog-jobs",
-        method: "GET",
-        clientId,
-      }),
-      backendRequest({
-        backend,
-        pathname: "/image-jobs",
-        method: "GET",
-        clientId,
-      }),
     ]);
     const shopStatus =
       shopStatusResult.status === "fulfilled" ? shopStatusResult.value : null;
     const plansPayload =
       plansResult.status === "fulfilled" ? plansResult.value : { plans: [] };
-    const presetsResult = shopStatus?.plan?.features?.presetsEnabled
-      ? await Promise.race([
-          backendRequest({
-            backend,
-            pathname: "/content-presets",
-            method: "GET",
-            clientId,
-            timeoutMs: 900,
-          }).then((value) => ({ status: "fulfilled", value })),
-          new Promise((resolve) =>
-            setTimeout(() => resolve({ status: "rejected" }), 900),
-          ),
-        ])
-      : { status: "fulfilled", value: { presets: [] } };
+    const presetsResult = { status: "fulfilled", value: { presets: [] } };
 
     return {
       backendConfigured:
@@ -114,8 +89,8 @@ export const loader = async ({ request }) => {
       auditLoaded: shouldLoadAudit,
       auditFilters,
       presets: presetsResult.status === "fulfilled" ? presetsResult.value.presets || [] : [],
-      jobs: jobsResult.status === "fulfilled" ? jobsResult.value.jobs || [] : [],
-      imageJobs: imageJobsResult.status === "fulfilled" ? imageJobsResult.value.jobs || [] : [],
+      jobs: [],
+      imageJobs: [],
     };
   } catch (error) {
     return {
@@ -855,11 +830,10 @@ export default function AppIndex() {
   });
 
   return (
-    <s-page heading="AI Product Generator" suppressHydrationWarning>
+    <s-page heading="AI Product Generator">
       <s-button
         slot="primary-action"
         variant="primary"
-        suppressHydrationWarning
         onClick={() => revalidator.revalidate()}
       >
         Refresh status
