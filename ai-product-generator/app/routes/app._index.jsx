@@ -62,6 +62,12 @@ export const loader = async ({ request }) => {
       method: "GET",
       clientId,
     });
+    const imageJobsPayload = await backendRequest({
+      backend,
+      pathname: "/image-jobs",
+      method: "GET",
+      clientId,
+    });
     const presetsPayload = shopStatus?.plan?.features?.presetsEnabled
       ? await backendRequest({
           backend,
@@ -83,6 +89,7 @@ export const loader = async ({ request }) => {
       auditFilters,
       presets: presetsPayload.presets || [],
       jobs: jobsPayload.jobs || [],
+      imageJobs: imageJobsPayload.jobs || [],
     };
   } catch (error) {
     return {
@@ -98,6 +105,7 @@ export const loader = async ({ request }) => {
       auditFilters,
       presets: [],
       jobs: [],
+      imageJobs: [],
     };
   }
 };
@@ -592,6 +600,55 @@ export const action = async ({ request }) => {
       };
     }
 
+    if (intent === "generate-image-assets") {
+      if (!planFeatures.imageGenerationEnabled) {
+        return {
+          ok: false,
+          intent,
+          message: "Upgrade to Growth or Scale to generate product images.",
+        };
+      }
+
+      const instructionText = String(formData.get("imageInstructions") || "").trim();
+      const stylePreset = String(formData.get("imageStylePreset") || "").trim();
+      const outputSize = String(formData.get("imageOutputSize") || "").trim();
+      const backgroundStyle = String(formData.get("imageBackgroundStyle") || "").trim();
+      const files = formData
+        .getAll("productImages")
+        .filter((value) => value && typeof value === "object");
+      const sourceImages = await serializeUploadedImages(files);
+
+      if (!sourceImages.length) {
+        return {
+          ok: false,
+          intent,
+          message: "Upload at least one product image first.",
+        };
+      }
+
+      const result = await backendRequest({
+        backend,
+        pathname: "/generate-product-images",
+        method: "POST",
+        body: {
+          clientId,
+          instructionText,
+          stylePreset,
+          outputSize,
+          backgroundStyle,
+          sourceImages,
+        },
+      });
+
+      return {
+        ok: true,
+        intent,
+        message: result.message || "Product images generated successfully.",
+        generatedImageJob: result.job,
+        generatedImages: result.images || [],
+      };
+    }
+
     return {
       ok: false,
       intent,
@@ -625,6 +682,7 @@ export default function AppIndex() {
   const currentBillingInterval = data.shopStatus?.plan?.billing_interval || "monthly";
   const presets = data.presets || [];
   const jobs = data.jobs || [];
+  const imageJobs = data.imageJobs || [];
   const auditFilters = data.auditFilters || emptyAuditFilters;
   const planFeatures = data.shopStatus?.plan?.features || emptyPlanFeatures;
   const defaultRequestedPlanName =
@@ -634,6 +692,8 @@ export default function AppIndex() {
   const auditItems = data.audit?.items || [];
   const previewItems =
     actionData?.intent === "preview-bulk-generate-audit" ? actionData.previews || [] : [];
+  const generatedImages =
+    actionData?.intent === "generate-image-assets" ? actionData.generatedImages || [] : [];
   const [billingInterval, setBillingInterval] = useState("monthly");
   const onboardingChecklist = buildOnboardingChecklist({
     profile,
@@ -1216,6 +1276,140 @@ export default function AppIndex() {
         )}
       </s-section>
 
+      <s-section heading="Product image studio">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            Upload raw product photos, describe the look you want, and generate website-ready ecommerce images for Shopify.
+          </s-paragraph>
+        </s-stack>
+
+        {!planFeatures.imageGenerationEnabled ? (
+          <div style={getNoticeStyle(false)}>
+            Product image generation is available on the Growth and Scale plans.
+          </div>
+        ) : (
+          <>
+            <Form method="post" action="?index" encType="multipart/form-data">
+              <input type="hidden" name="intent" value="generate-image-assets" />
+              <div style={presetFormGridStyle}>
+                <div>
+                  <label htmlFor="imageStylePreset">Style preset</label>
+                  <select
+                    id="imageStylePreset"
+                    name="imageStylePreset"
+                    style={inputStyle}
+                    defaultValue="clean-studio"
+                  >
+                    <option value="clean-studio">Clean studio</option>
+                    <option value="luxury-studio">Luxury studio</option>
+                    <option value="white-background">White background</option>
+                    <option value="soft-shadow">Soft shadow</option>
+                    <option value="social-ready">Social ready</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="imageOutputSize">Output size</label>
+                  <select
+                    id="imageOutputSize"
+                    name="imageOutputSize"
+                    style={inputStyle}
+                    defaultValue="1024x1024"
+                  >
+                    <option value="1024x1024">Square</option>
+                    <option value="1536x1024">Landscape</option>
+                    <option value="1024x1536">Portrait</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="imageBackgroundStyle">Background</label>
+                  <select
+                    id="imageBackgroundStyle"
+                    name="imageBackgroundStyle"
+                    style={inputStyle}
+                    defaultValue="white"
+                  >
+                    <option value="white">White</option>
+                    <option value="soft-gray">Soft gray</option>
+                    <option value="transparent">Transparent</option>
+                  </select>
+                </div>
+              </div>
+
+              <label htmlFor="imageInstructions">Image instructions</label>
+              <textarea
+                id="imageInstructions"
+                name="imageInstructions"
+                rows="4"
+                placeholder="Example: Clean white background, preserve logo details, add a soft natural shadow, and make it look premium but realistic."
+                style={inputStyle}
+              />
+
+              <label htmlFor="productImages">Product images</label>
+              <input
+                id="productImages"
+                name="productImages"
+                type="file"
+                accept="image/*"
+                multiple
+                style={inputStyle}
+              />
+
+              <s-button type="submit" variant="secondary">
+                Generate product images
+              </s-button>
+            </Form>
+
+            {actionData?.message && actionData.intent === "generate-image-assets" && (
+              <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+            )}
+
+            {generatedImages.length ? (
+              <div style={imageGridStyle}>
+                {generatedImages.map((image) => (
+                  <div key={image.id} style={imageCardStyle}>
+                    <img src={image.dataUrl} alt="Generated product visual" style={imagePreviewStyle} />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {imageJobs.length ? (
+              <div style={presetListStyle}>
+                {imageJobs.map((job) => (
+                  <div key={job.id} style={presetCardStyle}>
+                    <div style={presetCardHeaderStyle}>
+                      <strong>{capitalizePlanName(job.style_preset)}</strong>
+                      <span style={presetTagStyle}>
+                        {capitalizePlanName(job.status)} | {job.output_size}
+                      </span>
+                    </div>
+                    <p style={presetDescriptionTextStyle}>
+                      {job.instruction_text || "No extra image instructions provided."}
+                    </p>
+                    <p style={auditMetaStyle}>
+                      {job.source_image_count} source image{job.source_image_count === 1 ? "" : "s"} | {capitalizePlanName(job.background_style)} background
+                    </p>
+                    {job.output_images?.length ? (
+                      <div style={imageGridStyle}>
+                        {job.output_images.map((image) => (
+                          <div key={`${job.id}-${image.id}`} style={imageCardStyle}>
+                            <img src={image.dataUrl} alt="Saved generated product visual" style={imagePreviewStyle} />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={getNoticeStyle(false)}>
+                No image jobs yet. Your generated product visuals will appear here.
+              </div>
+            )}
+          </>
+        )}
+      </s-section>
+
       <s-section
         heading={needsProfile ? "Business onboarding" : "Business profile"}
       >
@@ -1593,6 +1787,34 @@ async function serializeUploadedProof(file) {
   };
 }
 
+async function serializeUploadedImages(files) {
+  const imageFiles = Array.isArray(files) ? files : [];
+  const serialized = [];
+
+  for (const file of imageFiles) {
+    if (
+      !file ||
+      typeof file !== "object" ||
+      typeof file.arrayBuffer !== "function" ||
+      !("size" in file) ||
+      file.size === 0
+    ) {
+      continue;
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const base64 = bufferToBase64(arrayBuffer);
+
+    serialized.push({
+      fileName: file.name || "",
+      mimeType: file.type || "image/png",
+      dataUrl: `data:${file.type || "image/png"};base64,${base64}`,
+    });
+  }
+
+  return serialized.slice(0, 4);
+}
+
 function bufferToBase64(arrayBuffer) {
   return Buffer.from(arrayBuffer).toString("base64");
 }
@@ -1895,6 +2117,26 @@ const auditScoreStyle = {
   margin: 0,
   color: "#1d4ed8",
   fontWeight: 600,
+};
+
+const imageGridStyle = {
+  display: "grid",
+  gap: "12px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+};
+
+const imageCardStyle = {
+  padding: "10px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+};
+
+const imagePreviewStyle = {
+  display: "block",
+  width: "100%",
+  borderRadius: "10px",
+  objectFit: "cover",
 };
 
 function getNoticeStyle(isSuccess) {

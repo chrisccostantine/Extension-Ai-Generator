@@ -26,6 +26,7 @@ const allowedPaymentMethods = [
   "Bank Audi Neo",
 ];
 const maxProofDataUrlLength = 2500000;
+const maxImageAssetDataUrlLength = 15000000;
 const defaultAllowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5000",
@@ -337,6 +338,125 @@ app.post("/catalog-jobs/:id/update", async (req, res) => {
     console.error("Failed to update catalog job:", error);
     return res.status(500).json({
       error: error?.message || "Failed to update catalog job.",
+    });
+  }
+});
+
+app.get("/image-jobs", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.query.clientId);
+    const shop = await ensureShop(clientId);
+    const jobs = await listImageJobsForShop(shop.id);
+    return res.json({ jobs });
+  } catch (error) {
+    console.error("Failed to load image jobs:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load image jobs.",
+    });
+  }
+});
+
+app.post("/generate-product-images", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({
+      error: "Unauthorized. Missing or invalid extension access token.",
+    });
+  }
+
+  if (!openai) {
+    return res.status(500).json({
+      error: "OPENAI_API_KEY is not set in the backend environment.",
+    });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const shop = await ensureShop(clientId);
+    const plan = await getPlanForShop(shop.id);
+    const instructionText = sanitizeText(req.body?.instructionText, 1200);
+    const stylePreset = sanitizeImageStylePreset(req.body?.stylePreset);
+    const outputSize = sanitizeImageOutputSize(req.body?.outputSize);
+    const backgroundStyle = sanitizeImageBackgroundStyle(req.body?.backgroundStyle);
+    const sourceImages = sanitizeImageDataUrls(req.body?.sourceImages);
+
+    if (!hasPlanFeature(plan, "imageGenerationEnabled")) {
+      return res.status(403).json({
+        error: "Upgrade to Growth or Scale to generate product images.",
+      });
+    }
+
+    if (!sourceImages.length) {
+      return res.status(400).json({
+        error: "Upload at least one source product image.",
+      });
+    }
+
+    const uploadables = await Promise.all(
+      sourceImages.map((image, index) =>
+        OpenAI.toFile(
+          Buffer.from(image.base64, "base64"),
+          image.fileName || `product-image-${index + 1}.${image.extension}`,
+          { type: image.mimeType },
+        ),
+      ),
+    );
+
+    const imagePrompt = buildImageEditPrompt({
+      instructionText,
+      stylePreset,
+      backgroundStyle,
+    });
+
+    const response = await openai.images.edit({
+      model: "gpt-image-1",
+      image: uploadables,
+      prompt: imagePrompt,
+      quality: "high",
+      size: outputSize,
+      background: backgroundStyle === "transparent" ? "transparent" : "opaque",
+    });
+
+    const generatedImages = (response.data || [])
+      .map((item, index) =>
+        item?.b64_json
+          ? {
+              id: `${Date.now()}-${index + 1}`,
+              mimeType: "image/png",
+              dataUrl: `data:image/png;base64,${item.b64_json}`,
+            }
+          : null,
+      )
+      .filter(Boolean);
+
+    if (!generatedImages.length) {
+      throw new Error("No image outputs were returned by the model.");
+    }
+
+    const job = await createImageJob({
+      shopId: shop.id,
+      status: "completed",
+      instructionText,
+      stylePreset,
+      outputSize,
+      backgroundStyle,
+      sourceImageCount: sourceImages.length,
+      outputImages: generatedImages,
+      lastError: "",
+    });
+
+    return res.json({
+      message: "Product images generated successfully.",
+      job,
+      images: generatedImages,
+    });
+  } catch (error) {
+    console.error("Failed to generate product images:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to generate product images.",
     });
   }
 });
@@ -963,6 +1083,78 @@ function sanitizeProofDataUrl(value) {
   return trimmed;
 }
 
+function sanitizeImageDataUrl(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  if (!trimmed.startsWith("data:image/")) {
+    throw new Error("Uploaded product images must be image files.");
+  }
+
+  if (trimmed.length > maxImageAssetDataUrlLength) {
+    throw new Error("One of the uploaded images is too large.");
+  }
+
+  return trimmed;
+}
+
+function sanitizeImageDataUrls(value) {
+  const items = Array.isArray(value) ? value : [];
+  return items
+    .map((item, index) => {
+      const dataUrl = sanitizeImageDataUrl(item?.dataUrl);
+
+      if (!dataUrl) {
+        return null;
+      }
+
+      const mimeType = dataUrl.slice(5, dataUrl.indexOf(";")) || "image/png";
+      const base64 = dataUrl.split(",")[1] || "";
+      const extension = mimeType.split("/")[1] || "png";
+
+      return {
+        dataUrl,
+        base64,
+        mimeType,
+        extension,
+        fileName: sanitizeText(item?.fileName, 120) || `uploaded-image-${index + 1}.${extension}`,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function sanitizeImageStylePreset(value) {
+  const supported = new Set([
+    "clean-studio",
+    "luxury-studio",
+    "white-background",
+    "soft-shadow",
+    "social-ready",
+  ]);
+  const normalized = sanitizeText(value, 80).toLowerCase();
+  return supported.has(normalized) ? normalized : "clean-studio";
+}
+
+function sanitizeImageOutputSize(value) {
+  const supported = new Set(["1024x1024", "1536x1024", "1024x1536"]);
+  const normalized = sanitizeText(value, 20);
+  return supported.has(normalized) ? normalized : "1024x1024";
+}
+
+function sanitizeImageBackgroundStyle(value) {
+  const supported = new Set(["white", "transparent", "soft-gray"]);
+  const normalized = sanitizeText(value, 40).toLowerCase();
+  return supported.has(normalized) ? normalized : "white";
+}
+
 function normalizeBillingInterval(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return normalized === "yearly" ? "yearly" : "monthly";
@@ -1078,6 +1270,41 @@ function buildGenerationUserPrompt({
     existingDescription ? `Existing product copy to improve:\n${existingDescription}` : "Existing product copy to improve:\nNone provided.",
     "Create a full content package for this product including description, highlights, composition, SEO metadata, subtitle, and FAQ.",
   ].join("\n");
+}
+
+function buildImageEditPrompt({
+  instructionText,
+  stylePreset,
+  backgroundStyle,
+}) {
+  const styleInstructions = {
+    "clean-studio":
+      "Create a clean ecommerce studio result with balanced lighting, natural color retention, and tidy composition.",
+    "luxury-studio":
+      "Create a premium luxury studio result with polished lighting, refined shadows, and elevated presentation.",
+    "white-background":
+      "Place the product on a pure white ecommerce-ready background with crisp edges and realistic form.",
+    "soft-shadow":
+      "Use a minimal commercial background with a soft natural shadow under the product.",
+    "social-ready":
+      "Create a scroll-stopping social-ready product visual while keeping the product faithful and sellable.",
+  };
+
+  const backgroundInstructions = {
+    white: "Use a bright clean white background suitable for product pages.",
+    transparent: "Return a transparent background if possible.",
+    "soft-gray": "Use a subtle soft-gray studio background.",
+  };
+
+  return [
+    "Edit the uploaded product reference images for ecommerce website use.",
+    styleInstructions[stylePreset] || styleInstructions["clean-studio"],
+    backgroundInstructions[backgroundStyle] || backgroundInstructions.white,
+    "Keep the product shape, materials, branding, and core appearance faithful to the original item.",
+    "Do not add unrelated props, text overlays, watermarks, or extra products.",
+    "The result should feel conversion-ready, polished, and suitable for a Shopify storefront.",
+    instructionText ? `Additional merchant instructions: ${instructionText}` : "",
+  ].join(" ");
 }
 
 function getProductCopySchema() {
@@ -1418,6 +1645,25 @@ async function initializeDatabase() {
 
         ALTER TABLE catalog_jobs
         ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+      `,
+    },
+    {
+      version: "012_image_jobs",
+      sql: `
+        CREATE TABLE IF NOT EXISTS image_jobs (
+          id SERIAL PRIMARY KEY,
+          shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'completed',
+          instruction_text TEXT NOT NULL DEFAULT '',
+          style_preset TEXT NOT NULL DEFAULT 'clean-studio',
+          output_size TEXT NOT NULL DEFAULT '1024x1024',
+          background_style TEXT NOT NULL DEFAULT 'white',
+          source_image_count INTEGER NOT NULL DEFAULT 0,
+          output_images_json TEXT NOT NULL DEFAULT '[]',
+          last_error TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
       `,
     },
   ];
@@ -1873,6 +2119,7 @@ function getPlanFeatureFlags(planName) {
       bulkGenerationEnabled: true,
       multilingualEnabled: true,
       advancedModesEnabled: true,
+      imageGenerationEnabled: true,
     };
   }
 
@@ -1881,6 +2128,7 @@ function getPlanFeatureFlags(planName) {
     bulkGenerationEnabled: false,
     multilingualEnabled: false,
     advancedModesEnabled: false,
+    imageGenerationEnabled: false,
   };
 }
 
@@ -1928,6 +2176,7 @@ function getPlanFeatureList(planName) {
       "Saved presets",
       "Multilingual generation",
       "Advanced generation modes",
+      "Product image generation",
     ];
   }
 
@@ -1938,6 +2187,7 @@ function getPlanFeatureList(planName) {
       "Saved presets",
       "Multilingual generation",
       "Advanced generation modes",
+      "Product image generation",
     ];
   }
 
@@ -2384,6 +2634,102 @@ async function listCatalogJobsForShop(shopId) {
   );
 
   return result.rows;
+}
+
+async function createImageJob({
+  shopId,
+  status,
+  instructionText,
+  stylePreset,
+  outputSize,
+  backgroundStyle,
+  sourceImageCount,
+  outputImages,
+  lastError,
+}) {
+  if (!pool) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      INSERT INTO image_jobs (
+        shop_id,
+        status,
+        instruction_text,
+        style_preset,
+        output_size,
+        background_style,
+        source_image_count,
+        output_images_json,
+        last_error
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, status, instruction_text, style_preset, output_size, background_style, source_image_count, output_images_json, last_error, created_at, updated_at
+    `,
+    [
+      shopId,
+      status || "completed",
+      instructionText || "",
+      stylePreset || "clean-studio",
+      outputSize || "1024x1024",
+      backgroundStyle || "white",
+      Math.max(0, Number(sourceImageCount || 0)),
+      JSON.stringify(outputImages || []),
+      lastError || "",
+    ],
+  );
+
+  return parseImageJobRow(result.rows[0]);
+}
+
+async function listImageJobsForShop(shopId) {
+  if (!pool) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        status,
+        instruction_text,
+        style_preset,
+        output_size,
+        background_style,
+        source_image_count,
+        output_images_json,
+        last_error,
+        created_at,
+        updated_at
+      FROM image_jobs
+      WHERE shop_id = $1
+      ORDER BY created_at DESC
+      LIMIT 12
+    `,
+    [shopId],
+  );
+
+  return result.rows.map((row) => parseImageJobRow(row));
+}
+
+function parseImageJobRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  let outputImages = [];
+
+  try {
+    outputImages = JSON.parse(row.output_images_json || "[]");
+  } catch (_error) {
+    outputImages = [];
+  }
+
+  return {
+    ...row,
+    output_images: Array.isArray(outputImages) ? outputImages : [],
+  };
 }
 
 async function recordUsageEvent(shopId, usagePeriod, productTitle) {
