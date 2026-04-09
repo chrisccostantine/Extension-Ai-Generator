@@ -1019,11 +1019,14 @@ export default function AppIndex() {
               <strong>Payment destination</strong>
               <p style={paymentNoticeTextStyle}>
                 {data.paymentInstructions ||
-                  "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 936."}
+                  "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 936. After payment, submit your transaction reference and optional proof screenshot in the app."}
               </p>
-              {data.supportContact && (
+              {(data.supportContact ||
+                "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com") && (
                 <p style={paymentNoticeTextStyle}>
-                  <strong>Confirmation contact:</strong> {data.supportContact}
+                  <strong>Confirmation contact:</strong>{" "}
+                  {data.supportContact ||
+                    "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com"}
                 </p>
               )}
             </div>

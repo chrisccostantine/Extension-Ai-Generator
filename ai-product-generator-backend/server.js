@@ -17,7 +17,8 @@ const paymentInstructions =
   process.env.PAYMENT_INSTRUCTIONS ||
   "Transfers through Whish, BOB Finance, or OMT must be sent to +961 70 221 936. After payment, submit your transaction reference and optional proof screenshot in the app.";
 const supportContact =
-  process.env.SUPPORT_CONTACT || "WhatsApp +961 70 221 936";
+  process.env.SUPPORT_CONTACT ||
+  "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com";
 const maxProofDataUrlLength = 2500000;
 const defaultAllowedOrigins = [
   "http://localhost:3000",
