@@ -1,5 +1,5 @@
 /* global Buffer, process */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Form,
   useActionData,
@@ -858,7 +858,6 @@ export default function AppIndex() {
     audit: data.audit,
     jobs,
   });
-  const [lastActionResult, setLastActionResult] = useState(null);
   const activeIntent = String(navigation.formData?.get("intent") || "");
   const isAuditReloading =
     isCatalogAuditPage &&
@@ -873,20 +872,6 @@ export default function AppIndex() {
     selectedCount: auditItems.length,
   });
 
-  useEffect(() => {
-    if (!actionData?.message) {
-      return;
-    }
-
-    setLastActionResult({
-      ok: Boolean(actionData.ok),
-      what: String(actionData.intent || "action"),
-      message: actionData.message,
-      when: new Date().toLocaleString(),
-      who: data.shopDomain,
-    });
-  }, [actionData, data.shopDomain]);
-
   return (
     <s-page heading={pageHeading}>
       <s-button
@@ -896,14 +881,6 @@ export default function AppIndex() {
       >
         Refresh status
       </s-button>
-      {lastActionResult && (
-        <div style={getNoticeStyle(lastActionResult.ok)}>
-          <strong>Last action:</strong> {lastActionResult.what} | <strong>Who:</strong>{" "}
-          {lastActionResult.who} | <strong>When:</strong> {lastActionResult.when}
-          <br />
-          {lastActionResult.message}
-        </div>
-      )}
 
       {isHomePage && (
       <s-section heading="Store status">
