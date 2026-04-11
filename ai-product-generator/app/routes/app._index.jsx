@@ -4,6 +4,7 @@ import {
   Form,
   useActionData,
   useLoaderData,
+  useLocation,
   useRevalidator,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -771,6 +772,7 @@ export const action = async ({ request }) => {
 export default function AppIndex() {
   const data = useLoaderData();
   const actionData = useActionData();
+  const location = useLocation();
   const revalidator = useRevalidator();
   const profile = data.shopStatus?.profile || emptyProfile;
   const needsProfile =
@@ -799,6 +801,14 @@ export default function AppIndex() {
     actionData?.intent === "preview-bulk-generate-audit" ? actionData.previews || [] : [];
   const [billingInterval, setBillingInterval] = useState("monthly");
   const imageCreditsRemaining = getRemainingImageCredits(data.shopStatus);
+  const isCatalogAuditPage = location.pathname.endsWith("/catalog-audit");
+  const isPricingPage = location.pathname.endsWith("/pricing");
+  const isHomePage = !isCatalogAuditPage && !isPricingPage;
+  const pageHeading = isCatalogAuditPage
+    ? "Catalog Audit"
+    : isPricingPage
+      ? "Pricing"
+      : "AI Product Generator";
   const onboardingChecklist = buildOnboardingChecklist({
     profile,
     presets,
@@ -813,7 +823,7 @@ export default function AppIndex() {
   });
 
   return (
-    <s-page heading="AI Product Generator">
+    <s-page heading={pageHeading}>
       <s-button
         slot="primary-action"
         variant="primary"
@@ -822,6 +832,7 @@ export default function AppIndex() {
         Refresh status
       </s-button>
 
+      {isHomePage && (
       <s-section heading="Store status">
         <s-stack direction="block" gap="base">
           <s-paragraph>
@@ -870,7 +881,9 @@ export default function AppIndex() {
           )}
         </s-stack>
       </s-section>
+      )}
 
+      {isHomePage && (
       <s-section heading="Onboarding checklist">
         <div style={metricGridStyle}>
           {onboardingChecklist.map((item) => (
@@ -881,7 +894,9 @@ export default function AppIndex() {
           ))}
         </div>
       </s-section>
+      )}
 
+      {isHomePage && (
       <s-section heading="ROI snapshot">
         <div style={metricGridStyle}>
           <div style={metricCardStyle}>
@@ -902,7 +917,9 @@ export default function AppIndex() {
           </div>
         </div>
       </s-section>
+      )}
 
+      {isHomePage && (
       <s-section heading="Saved presets">
         <s-stack direction="block" gap="base">
           <s-paragraph>
@@ -915,7 +932,7 @@ export default function AppIndex() {
           </div>
         ) : (
           <>
-            <Form method="post" action="?index">
+            <Form method="post" action=".">
               <input type="hidden" name="intent" value="save-preset" />
               <div style={presetFormGridStyle}>
                 <div>
@@ -984,7 +1001,7 @@ export default function AppIndex() {
                     <p style={presetDescriptionTextStyle}>
                       {preset.instructions || "No extra instructions for this preset."}
                     </p>
-                    <Form method="post" action="?index">
+                    <Form method="post" action=".">
                       <input type="hidden" name="intent" value="delete-preset" />
                       <input type="hidden" name="presetId" value={preset.id} />
                       <s-button type="submit" variant="secondary">Delete preset</s-button>
@@ -1005,6 +1022,7 @@ export default function AppIndex() {
         )}
       </s-section>
 
+      {isCatalogAuditPage && (
       <s-section heading="Catalog audit">
         <s-stack direction="block" gap="base">
           <s-paragraph>
@@ -1110,7 +1128,7 @@ export default function AppIndex() {
           <s-button type="submit" variant="secondary">Apply filters</s-button>
         </Form>
 
-        <Form method="post" action="?index" encType="multipart/form-data">
+        <Form method="post" action="." encType="multipart/form-data">
           <input type="hidden" name="intent" value="bulk-generate-audit" />
           <s-stack direction="block" gap="base">
             {needsProfile && (
@@ -1225,7 +1243,7 @@ export default function AppIndex() {
                 name="_action"
                 value="preview"
                 variant="secondary"
-                formaction="?index"
+                formaction="."
                 onClick={(event) => {
                   event.currentTarget.form.elements.intent.value =
                     "preview-bulk-generate-audit";
@@ -1243,7 +1261,7 @@ export default function AppIndex() {
                 name="_action"
                 value="apply"
                 variant="secondary"
-                formaction="?index"
+                formaction="."
                 onClick={(event) => {
                   event.currentTarget.form.elements.intent.value =
                     "bulk-generate-audit";
@@ -1270,7 +1288,7 @@ export default function AppIndex() {
         {previewItems.length ? (
           <s-stack direction="block" gap="base">
             <s-heading>Preview before apply</s-heading>
-            <Form method="post" action="?index">
+            <Form method="post" action=".">
               <input type="hidden" name="intent" value="apply-preview-batch" />
               <input
                 type="hidden"
@@ -1361,11 +1379,14 @@ export default function AppIndex() {
           </s-stack>
         ) : null}
       </s-section>
+      )}
+      )}
 
+      {isHomePage && (
       <s-section
         heading={needsProfile ? "Business onboarding" : "Business profile"}
       >
-        <Form method="post" action="?index" encType="multipart/form-data">
+        <Form method="post" action="." encType="multipart/form-data">
           <input type="hidden" name="intent" value="save-profile" />
           <s-stack direction="block" gap="base">
             <label htmlFor="businessType">Business type</label>
@@ -1470,9 +1491,11 @@ export default function AppIndex() {
           <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
         )}
       </s-section>
+      )}
 
+      {isPricingPage && (
       <s-section heading="Request a paid plan">
-        <Form method="post" action="?index" encType="multipart/form-data">
+        <Form method="post" action="." encType="multipart/form-data">
           <input type="hidden" name="intent" value="request-plan" />
           <input type="hidden" name="billingInterval" value={billingInterval} />
           <s-stack direction="block" gap="base">
@@ -1688,6 +1711,7 @@ export default function AppIndex() {
           <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
         )}
       </s-section>
+      )}
 
       <s-section slot="aside" heading="Manual billing">
         <s-paragraph>
