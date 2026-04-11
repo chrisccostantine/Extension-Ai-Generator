@@ -20,7 +20,8 @@ const PAYMENT_METHOD_OPTIONS = [
   "BOB Finance",
   "Bank Audi Neo",
 ];
-const BACKEND_REQUEST_TIMEOUT_MS = 3500;
+const BACKEND_REQUEST_TIMEOUT_MS = 10000;
+const CONTENT_GENERATION_TIMEOUT_MS = 45000;
 const LOADER_AUDIT_TIMEOUT_MS = 1200;
 
 export const loader = async ({ request }) => {
@@ -2606,6 +2607,7 @@ async function buildBulkGenerationInput({ admin, backend, clientId, formData }) 
       backend,
       pathname: "/generate-product-content",
       method: "POST",
+      timeoutMs: CONTENT_GENERATION_TIMEOUT_MS,
       body: {
         clientId,
         title: product.title,
