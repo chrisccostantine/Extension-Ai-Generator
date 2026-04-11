@@ -1021,6 +1021,7 @@ export default function AppIndex() {
           </>
         )}
       </s-section>
+      )}
 
       {isCatalogAuditPage && (
       <s-section heading="Catalog audit">
@@ -1379,7 +1380,6 @@ export default function AppIndex() {
           </s-stack>
         ) : null}
       </s-section>
-      )}
       )}
 
       {isHomePage && (
