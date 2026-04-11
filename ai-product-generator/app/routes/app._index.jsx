@@ -28,10 +28,8 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
-  const pathname = new URL(request.url).pathname;
-  const isCatalogAuditRoute = pathname.endsWith("/catalog-audit");
   const auditFilters = getAuditFiltersFromRequest(request);
-  const shouldLoadAudit = auditFilters.loadAudit || isCatalogAuditRoute;
+  const shouldLoadAudit = auditFilters.loadAudit;
   const audit = shouldLoadAudit
     ? await withTimeout(
         getCatalogAudit(admin, auditFilters),
@@ -1035,6 +1033,12 @@ export default function AppIndex() {
           <s-paragraph>
             Review missing or weak descriptions, missing SEO content, and then generate improved copy in bulk.
           </s-paragraph>
+          <Form method="get">
+            <input type="hidden" name="loadAudit" value="1" />
+            <s-button type="submit" variant={auditLoaded ? "secondary" : "primary"}>
+              {auditLoaded ? "Reload audit" : "Load audit"}
+            </s-button>
+          </Form>
         </s-stack>
 
         {!auditLoaded ? (
@@ -1043,10 +1047,6 @@ export default function AppIndex() {
               <s-paragraph>
                 Load audit to fetch recent products, then filter and generate improved content in bulk.
               </s-paragraph>
-              <Form method="get">
-                <input type="hidden" name="loadAudit" value="1" />
-                <s-button type="submit" variant="primary">Load audit</s-button>
-              </Form>
             </s-stack>
           </div>
         ) : null}
