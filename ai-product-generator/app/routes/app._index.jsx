@@ -1037,62 +1037,71 @@ export default function AppIndex() {
         </s-stack>
 
         {!auditLoaded ? (
-          <Form method="get">
-            <input type="hidden" name="loadAudit" value="1" />
-            <s-button type="submit" variant="secondary">Load audit now</s-button>
-          </Form>
+          <div style={getNoticeStyle(true)}>
+            <s-stack direction="block" gap="base">
+              <s-paragraph>
+                Load audit to fetch recent products, then filter and generate improved content in bulk.
+              </s-paragraph>
+              <Form method="get">
+                <input type="hidden" name="loadAudit" value="1" />
+                <s-button type="submit" variant="primary">Load audit</s-button>
+              </Form>
+            </s-stack>
+          </div>
         ) : null}
 
-        {!planFeatures.bulkGenerationEnabled && (
-          <div style={getNoticeStyle(false)}>
-            Bulk generation, preview, and bulk apply are available on the Growth and Scale plans.
-          </div>
-        )}
+        {auditLoaded && (
+          <>
+            {!planFeatures.bulkGenerationEnabled && (
+              <div style={getNoticeStyle(false)}>
+                Bulk generation, preview, and bulk apply are available on the Growth and Scale plans.
+              </div>
+            )}
 
-        <Form method="get">
-          <input type="hidden" name="loadAudit" value="1" />
-          <div style={auditFilterGridStyle}>
-            <div>
-              <label htmlFor="q">Search</label>
-              <input
-                id="q"
-                name="q"
-                type="text"
-                placeholder="Search by product title"
-                defaultValue={auditFilters.q}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label htmlFor="issueType">Issue type</label>
-              <select
-                id="issueType"
-                name="issueType"
-                style={inputStyle}
-                defaultValue={auditFilters.issueType}
-              >
-                <option value="">All issues</option>
-                <option value="description">Description</option>
-                <option value="seo-title">SEO title</option>
-                <option value="seo-description">SEO description</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="vendor">Vendor</label>
-              <select
-                id="vendor"
-                name="vendor"
-                style={inputStyle}
-                defaultValue={auditFilters.vendor}
-              >
-                <option value="">All vendors</option>
-                {(data.audit?.availableVendors || []).map((vendor) => (
-                  <option key={vendor} value={vendor}>
-                    {vendor}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Form method="get">
+              <input type="hidden" name="loadAudit" value="1" />
+              <div style={auditFilterGridStyle}>
+                <div>
+                  <label htmlFor="q">Search</label>
+                  <input
+                    id="q"
+                    name="q"
+                    type="text"
+                    placeholder="Search by product title"
+                    defaultValue={auditFilters.q}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="issueType">Issue type</label>
+                  <select
+                    id="issueType"
+                    name="issueType"
+                    style={inputStyle}
+                    defaultValue={auditFilters.issueType}
+                  >
+                    <option value="">All issues</option>
+                    <option value="description">Description</option>
+                    <option value="seo-title">SEO title</option>
+                    <option value="seo-description">SEO description</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="vendor">Vendor</label>
+                  <select
+                    id="vendor"
+                    name="vendor"
+                    style={inputStyle}
+                    defaultValue={auditFilters.vendor}
+                  >
+                    <option value="">All vendors</option>
+                    {(data.audit?.availableVendors || []).map((vendor) => (
+                      <option key={vendor} value={vendor}>
+                        {vendor}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               <div>
                 <label htmlFor="productType">Product type</label>
                 <select
@@ -1126,17 +1135,17 @@ export default function AppIndex() {
               </select>
             </div>
           </div>
-          <s-button type="submit" variant="secondary">Apply filters</s-button>
-        </Form>
+              <s-button type="submit" variant="secondary">Apply filters</s-button>
+            </Form>
 
-        <Form method="post" action="." encType="multipart/form-data">
-          <input type="hidden" name="intent" value="bulk-generate-audit" />
-          <s-stack direction="block" gap="base">
-            {needsProfile && (
-              <div style={getNoticeStyle(false)}>
-                Save your business profile first so bulk generation matches your store voice.
-              </div>
-            )}
+            <Form method="post" action="." encType="multipart/form-data">
+              <input type="hidden" name="intent" value="bulk-generate-audit" />
+              <s-stack direction="block" gap="base">
+                {needsProfile && (
+                  <div style={getNoticeStyle(false)}>
+                    Save your business profile first so bulk generation matches your store voice.
+                  </div>
+                )}
 
             <div style={bulkControlsStyle}>
               <div>
@@ -1276,109 +1285,111 @@ export default function AppIndex() {
                 Generate and apply to selected products
               </s-button>
             </div>
-          </s-stack>
-        </Form>
+              </s-stack>
+            </Form>
 
-        {actionData?.message &&
-          (actionData.intent === "bulk-generate-audit" ||
-            actionData.intent === "preview-bulk-generate-audit" ||
-            actionData.intent === "apply-preview-batch") && (
-          <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
-        )}
+            {actionData?.message &&
+              (actionData.intent === "bulk-generate-audit" ||
+                actionData.intent === "preview-bulk-generate-audit" ||
+                actionData.intent === "apply-preview-batch") && (
+              <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+            )}
 
-        {previewItems.length ? (
-          <s-stack direction="block" gap="base">
-            <s-heading>Preview before apply</s-heading>
-            <Form method="post" action=".">
-              <input type="hidden" name="intent" value="apply-preview-batch" />
-              <input
-                type="hidden"
-                name="previewsJson"
-                value={JSON.stringify(previewItems)}
-              />
-              <div style={previewListStyle}>
-                {previewItems.map((preview) => (
-                  <div key={preview.productId} style={previewCardStyle}>
-                    <div style={auditCardHeaderStyle}>
-                      <input
-                        id={`preview-${preview.productId}`}
-                        type="checkbox"
-                        name="selectedPreviewProductIds"
-                        value={preview.productId}
-                        defaultChecked
-                      />
-                      <label htmlFor={`preview-${preview.productId}`}>
-                        <strong>{preview.title}</strong>
-                      </label>
-                    </div>
-                    <div style={previewColumnsStyle}>
-                      <div style={previewPanelStyle}>
-                        <strong>Before</strong>
-                        <p style={previewTextStyle}>{preview.beforeDescription}</p>
-                        <p style={previewMetaStyle}>
-                          SEO title: {preview.beforeSeoTitle || "Missing"}
-                        </p>
-                        <p style={previewMetaStyle}>
-                          SEO description: {preview.beforeSeoDescription || "Missing"}
-                        </p>
-                      </div>
-                      <div style={previewPanelStyle}>
-                        <strong>After</strong>
-                        <p style={previewMetaHeadlineStyle}>
-                          {preview.generated.subtitle || "No subtitle generated"}
-                        </p>
-                        <p style={previewTextStyle}>{preview.generated.description}</p>
-                        <div style={previewListBlockStyle}>
-                          <strong>Highlights</strong>
-                          <ul style={previewBulletListStyle}>
-                            {(preview.generated.highlights || []).map((item) => (
-                              <li key={`${preview.productId}-${item}`}>{item}</li>
-                            ))}
-                          </ul>
+            {previewItems.length ? (
+              <s-stack direction="block" gap="base">
+                <s-heading>Preview before apply</s-heading>
+                <Form method="post" action=".">
+                  <input type="hidden" name="intent" value="apply-preview-batch" />
+                  <input
+                    type="hidden"
+                    name="previewsJson"
+                    value={JSON.stringify(previewItems)}
+                  />
+                  <div style={previewListStyle}>
+                    {previewItems.map((preview) => (
+                      <div key={preview.productId} style={previewCardStyle}>
+                        <div style={auditCardHeaderStyle}>
+                          <input
+                            id={`preview-${preview.productId}`}
+                            type="checkbox"
+                            name="selectedPreviewProductIds"
+                            value={preview.productId}
+                            defaultChecked
+                          />
+                          <label htmlFor={`preview-${preview.productId}`}>
+                            <strong>{preview.title}</strong>
+                          </label>
                         </div>
-                        <div style={previewListBlockStyle}>
-                          <strong>Composition</strong>
-                          <ul style={previewBulletListStyle}>
-                            {(preview.generated.composition || []).map((item) => (
-                              <li key={`${preview.productId}-composition-${item}`}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div style={previewListBlockStyle}>
-                          <strong>FAQ</strong>
-                          <div style={previewFaqListStyle}>
-                            {(preview.generated.faq || []).map((item) => (
-                              <div
-                                key={`${preview.productId}-faq-${item.question}`}
-                                style={previewFaqItemStyle}
-                              >
-                                <strong>{item.question}</strong>
-                                <p style={previewMetaStyle}>{item.answer}</p>
+                        <div style={previewColumnsStyle}>
+                          <div style={previewPanelStyle}>
+                            <strong>Before</strong>
+                            <p style={previewTextStyle}>{preview.beforeDescription}</p>
+                            <p style={previewMetaStyle}>
+                              SEO title: {preview.beforeSeoTitle || "Missing"}
+                            </p>
+                            <p style={previewMetaStyle}>
+                              SEO description: {preview.beforeSeoDescription || "Missing"}
+                            </p>
+                          </div>
+                          <div style={previewPanelStyle}>
+                            <strong>After</strong>
+                            <p style={previewMetaHeadlineStyle}>
+                              {preview.generated.subtitle || "No subtitle generated"}
+                            </p>
+                            <p style={previewTextStyle}>{preview.generated.description}</p>
+                            <div style={previewListBlockStyle}>
+                              <strong>Highlights</strong>
+                              <ul style={previewBulletListStyle}>
+                                {(preview.generated.highlights || []).map((item) => (
+                                  <li key={`${preview.productId}-${item}`}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div style={previewListBlockStyle}>
+                              <strong>Composition</strong>
+                              <ul style={previewBulletListStyle}>
+                                {(preview.generated.composition || []).map((item) => (
+                                  <li key={`${preview.productId}-composition-${item}`}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div style={previewListBlockStyle}>
+                              <strong>FAQ</strong>
+                              <div style={previewFaqListStyle}>
+                                {(preview.generated.faq || []).map((item) => (
+                                  <div
+                                    key={`${preview.productId}-faq-${item.question}`}
+                                    style={previewFaqItemStyle}
+                                  >
+                                    <strong>{item.question}</strong>
+                                    <p style={previewMetaStyle}>{item.answer}</p>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            </div>
+                            <p style={previewMetaStyle}>
+                              SEO title: {preview.generated.metaTitle}
+                            </p>
+                            <p style={previewMetaStyle}>
+                              SEO description: {preview.generated.metaDescription}
+                            </p>
                           </div>
                         </div>
-                        <p style={previewMetaStyle}>
-                          SEO title: {preview.generated.metaTitle}
-                        </p>
-                        <p style={previewMetaStyle}>
-                          SEO description: {preview.generated.metaDescription}
-                        </p>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <s-button
-                type="submit"
-                variant="secondary"
-                disabled={!planFeatures.bulkGenerationEnabled}
-              >
-                Apply selected previews
-              </s-button>
-            </Form>
-          </s-stack>
-        ) : null}
+                  <s-button
+                    type="submit"
+                    variant="secondary"
+                    disabled={!planFeatures.bulkGenerationEnabled}
+                  >
+                    Apply selected previews
+                  </s-button>
+                </Form>
+              </s-stack>
+            ) : null}
+          </>
+        )}
       </s-section>
       )}
 
