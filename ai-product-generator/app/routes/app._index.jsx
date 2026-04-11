@@ -1140,7 +1140,6 @@ export default function AppIndex() {
             </Form>
 
             <Form method="post" action="." encType="multipart/form-data">
-              <input type="hidden" name="intent" value="bulk-generate-audit" />
               <s-stack direction="block" gap="base">
                 {needsProfile && (
                   <div style={getNoticeStyle(false)}>
@@ -1251,14 +1250,10 @@ export default function AppIndex() {
             <div style={bulkActionRowStyle}>
               <s-button
                 type="submit"
-                name="_action"
-                value="preview"
+                name="intent"
+                value="preview-bulk-generate-audit"
                 variant="secondary"
                 formaction="."
-                onClick={(event) => {
-                  event.currentTarget.form.elements.intent.value =
-                    "preview-bulk-generate-audit";
-                }}
                 disabled={
                   needsProfile ||
                   !auditItems.length ||
@@ -1269,14 +1264,10 @@ export default function AppIndex() {
               </s-button>
               <s-button
                 type="submit"
-                name="_action"
-                value="apply"
+                name="intent"
+                value="bulk-generate-audit"
                 variant="secondary"
                 formaction="."
-                onClick={(event) => {
-                  event.currentTarget.form.elements.intent.value =
-                    "bulk-generate-audit";
-                }}
                 disabled={
                   needsProfile ||
                   !auditItems.length ||
