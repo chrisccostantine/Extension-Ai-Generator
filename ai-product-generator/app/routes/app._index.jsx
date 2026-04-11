@@ -1,10 +1,11 @@
 /* global Buffer, process */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Form,
   useActionData,
   useLoaderData,
   useLocation,
+  useNavigation,
   useRevalidator,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -23,6 +24,7 @@ const PAYMENT_METHOD_OPTIONS = [
 const BACKEND_REQUEST_TIMEOUT_MS = 10000;
 const CONTENT_GENERATION_TIMEOUT_MS = 45000;
 const LOADER_AUDIT_TIMEOUT_MS = 1200;
+const BACKEND_RETRY_ATTEMPTS = 1;
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -142,7 +144,8 @@ export const action = async ({ request }) => {
   }
 
   try {
-    const planFeatures = await getPlanAccess(backend, clientId);
+    const shopStatus = await getShopStatus(backend, clientId);
+    const planFeatures = shopStatus?.plan?.features || emptyPlanFeatures;
 
     if (intent === "save-profile") {
       const businessType = String(formData.get("businessType") || "").trim();
@@ -194,6 +197,8 @@ export const action = async ({ request }) => {
         backend,
         clientId,
         formData,
+        planFeatures,
+        shopStatus,
       });
 
       if (bulkGenerationInput.errorMessage) {
@@ -296,6 +301,8 @@ export const action = async ({ request }) => {
         backend,
         clientId,
         formData,
+        planFeatures,
+        shopStatus,
       });
 
       if (bulkGenerationInput.errorMessage) {
@@ -651,10 +658,24 @@ export const action = async ({ request }) => {
         };
       }
 
+      const imageLimit = Number(shopStatus?.plan?.monthly_image_limit || 0);
+      const usedImageCredits = Number(shopStatus?.imageUsage?.count || 0);
+      const remainingImageCredits = Math.max(0, imageLimit - usedImageCredits);
+
+      if (remainingImageCredits <= 0) {
+        return {
+          ok: false,
+          intent,
+          message: "No image credits left this month. Upgrade your plan or wait for the next billing cycle.",
+        };
+      }
+
       const result = await backendRequest({
         backend,
         pathname: "/generate-product-images",
         method: "POST",
+        timeoutMs: CONTENT_GENERATION_TIMEOUT_MS,
+        retries: BACKEND_RETRY_ATTEMPTS,
         body: {
           clientId,
           instructionText,
@@ -719,6 +740,7 @@ export const action = async ({ request }) => {
         (job) => String(job.id) === imageJobId,
       );
       const generatedImages = matchedJob?.output_images || [];
+      const saveStartAt = Date.now();
 
       if (!generatedImages.length) {
         return {
@@ -733,6 +755,13 @@ export const action = async ({ request }) => {
 
       try {
         await addImagesToShopifyProduct(admin, { productId, images: generatedImages });
+        await safeRecordQualityEvent({
+          backend,
+          clientId,
+          eventType: "save_to_product",
+          outcome: "success",
+          durationMs: Date.now() - saveStartAt,
+        });
 
         return {
           ok: true,
@@ -745,6 +774,14 @@ export const action = async ({ request }) => {
           } to the selected product.`,
         };
       } catch (error) {
+        await safeRecordQualityEvent({
+          backend,
+          clientId,
+          eventType: "save_to_product",
+          outcome: "failed",
+          durationMs: Date.now() - saveStartAt,
+          errorCode: getErrorCodeFromMessage(error?.message || ""),
+        });
         return {
           ok: false,
           intent,
@@ -773,6 +810,7 @@ export const action = async ({ request }) => {
 export default function AppIndex() {
   const data = useLoaderData();
   const actionData = useActionData();
+  const navigation = useNavigation();
   const location = useLocation();
   const revalidator = useRevalidator();
   const profile = data.shopStatus?.profile || emptyProfile;
@@ -820,6 +858,34 @@ export default function AppIndex() {
     audit: data.audit,
     jobs,
   });
+  const [lastActionResult, setLastActionResult] = useState(null);
+  const activeIntent = String(navigation.formData?.get("intent") || "");
+  const isAuditReloading =
+    isCatalogAuditPage &&
+    navigation.state !== "idle" &&
+    navigation.formMethod?.toLowerCase() === "get";
+  const isBulkGenerating =
+    navigation.state !== "idle" && activeIntent === "bulk-generate-audit";
+  const bulkBlockedReason = getBulkGenerationBlockedReason({
+    needsProfile,
+    planFeatures,
+    shopStatus: data.shopStatus,
+    selectedCount: auditItems.length,
+  });
+
+  useEffect(() => {
+    if (!actionData?.message) {
+      return;
+    }
+
+    setLastActionResult({
+      ok: Boolean(actionData.ok),
+      what: String(actionData.intent || "action"),
+      message: actionData.message,
+      when: new Date().toLocaleString(),
+      who: data.shopDomain,
+    });
+  }, [actionData, data.shopDomain]);
 
   return (
     <s-page heading={pageHeading}>
@@ -830,6 +896,14 @@ export default function AppIndex() {
       >
         Refresh status
       </s-button>
+      {lastActionResult && (
+        <div style={getNoticeStyle(lastActionResult.ok)}>
+          <strong>Last action:</strong> {lastActionResult.what} | <strong>Who:</strong>{" "}
+          {lastActionResult.who} | <strong>When:</strong> {lastActionResult.when}
+          <br />
+          {lastActionResult.message}
+        </div>
+      )}
 
       {isHomePage && (
       <s-section heading="Store status">
@@ -1035,8 +1109,16 @@ export default function AppIndex() {
           </s-paragraph>
           <Form method="get">
             <input type="hidden" name="loadAudit" value="1" />
-            <s-button type="submit" variant={auditLoaded ? "secondary" : "primary"}>
-              {auditLoaded ? "Reload audit" : "Load audit"}
+            <s-button
+              type="submit"
+              variant={auditLoaded ? "secondary" : "primary"}
+              disabled={isAuditReloading}
+            >
+              {isAuditReloading
+                ? "Loading audit..."
+                : auditLoaded
+                  ? "Reload audit"
+                  : "Load audit"}
             </s-button>
           </Form>
         </s-stack>
@@ -1144,6 +1226,14 @@ export default function AppIndex() {
                 {needsProfile && (
                   <div style={getNoticeStyle(false)}>
                     Save your business profile first so bulk generation matches your store voice.
+                  </div>
+                )}
+                {bulkBlockedReason && (
+                  <div style={getNoticeStyle(false)}>{bulkBlockedReason}</div>
+                )}
+                {isBulkGenerating && (
+                  <div style={getNoticeStyle(true)}>
+                    Generating and applying content updates. Keep this page open until the run completes.
                   </div>
                 )}
 
@@ -1255,12 +1345,15 @@ export default function AppIndex() {
                 variant="secondary"
                 formaction="."
                 disabled={
-                  needsProfile ||
+                  Boolean(bulkBlockedReason) ||
                   !auditItems.length ||
-                  !planFeatures.bulkGenerationEnabled
+                  !planFeatures.bulkGenerationEnabled ||
+                  isBulkGenerating
                 }
               >
-                Generate and apply to selected products
+                {isBulkGenerating
+                  ? "Generating and applying..."
+                  : "Generate and apply to selected products"}
               </s-button>
             </div>
               </s-stack>
@@ -1645,6 +1738,7 @@ async function backendRequest({
   clientId,
   body,
   timeoutMs = BACKEND_REQUEST_TIMEOUT_MS,
+  retries = 0,
 }) {
   const url = new URL(pathname, backend.baseUrl);
 
@@ -1652,40 +1746,58 @@ async function backendRequest({
     url.searchParams.set("clientId", clientId);
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const maxAttempts = Math.max(1, Number(retries || 0) + 1);
+  let lastError;
 
-  let response;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  try {
-    response = await fetch(url.toString(), {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        ...(backend.extensionToken
-          ? { "x-extension-token": backend.extensionToken }
-          : {}),
-      },
-      signal: controller.signal,
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`Request timed out for ${pathname}.`);
+    try {
+      const response = await fetch(url.toString(), {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(backend.extensionToken
+            ? { "x-extension-token": backend.extensionToken }
+            : {}),
+        },
+        signal: controller.signal,
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      clearTimeout(timeout);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const backendError = new Error(data.error || "Backend request failed.");
+        backendError.retryable = response.status >= 500 || response.status === 429;
+        throw backendError;
+      }
+
+      return data;
+    } catch (error) {
+      clearTimeout(timeout);
+
+      const isAbort = error?.name === "AbortError";
+      const normalizedError = isAbort
+        ? new Error(`Request timed out for ${pathname}.`)
+        : error;
+      const retryable = Boolean(isAbort || normalizedError?.retryable);
+      lastError = normalizedError;
+
+      if (attempt < maxAttempts - 1 && retryable) {
+        await wait(250 * (attempt + 1));
+        continue;
+      }
+      break;
     }
-
-    throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || "Backend request failed.");
-  }
-
-  return data;
+  throw new Error(
+    lastError?.message
+      || `The request to ${pathname} failed. Please retry in a moment.`,
+  );
 }
 
 async function withTimeout(promise, timeoutMs, timeoutMessage) {
@@ -2402,15 +2514,13 @@ function getAuditFiltersFromRequest(request) {
   };
 }
 
-async function getPlanAccess(backend, clientId) {
-  const shopStatus = await backendRequest({
+async function getShopStatus(backend, clientId) {
+  return backendRequest({
     backend,
     pathname: "/shop-status",
     method: "GET",
     clientId,
   });
-
-  return shopStatus?.plan?.features || emptyPlanFeatures;
 }
 
 async function getProductsByIds(admin, ids) {
@@ -2436,10 +2546,20 @@ async function getProductsByIds(admin, ids) {
   return (payload?.data?.nodes || []).filter(Boolean);
 }
 
-async function buildBulkGenerationInput({ admin, backend, clientId, formData }) {
-  const planFeatures = await getPlanAccess(backend, clientId);
+async function buildBulkGenerationInput({
+  admin,
+  backend,
+  clientId,
+  formData,
+  planFeatures,
+  shopStatus,
+}) {
+  const runtimePlanFeatures =
+    planFeatures
+    || (await getShopStatus(backend, clientId))?.plan?.features
+    || emptyPlanFeatures;
 
-  if (!planFeatures.bulkGenerationEnabled) {
+  if (!runtimePlanFeatures.bulkGenerationEnabled) {
     return {
       errorMessage: "Upgrade to Growth or Scale to use bulk generation.",
       previews: [],
@@ -2458,6 +2578,25 @@ async function buildBulkGenerationInput({ admin, backend, clientId, formData }) 
   if (!selectedProductIds.length) {
     return {
       errorMessage: "Select at least one product from the audit list.",
+      previews: [],
+    };
+  }
+
+  const usedGenerations = Number(shopStatus?.usage?.count || 0);
+  const generationLimit = Number(shopStatus?.plan?.monthly_generation_limit || 0);
+  const remainingGenerations = Math.max(0, generationLimit - usedGenerations);
+
+  if (remainingGenerations <= 0) {
+    return {
+      errorMessage:
+        "Monthly generation limit reached. Upgrade your plan or wait for the next cycle.",
+      previews: [],
+    };
+  }
+
+  if (selectedProductIds.length > remainingGenerations) {
+    return {
+      errorMessage: `You selected ${selectedProductIds.length} products but only ${remainingGenerations} generations are available this month.`,
       previews: [],
     };
   }
@@ -2482,39 +2621,121 @@ async function buildBulkGenerationInput({ admin, backend, clientId, formData }) 
 
   const products = await getProductsByIds(admin, selectedProductIds);
   const previews = [];
+  const failedProducts = [];
 
   for (const product of products) {
-    const generated = await backendRequest({
-      backend,
-      pathname: "/generate-product-content",
-      method: "POST",
-      timeoutMs: CONTENT_GENERATION_TIMEOUT_MS,
-      body: {
-        clientId,
-        title: product.title,
-        mode,
-        language,
-        existingDescription: stripHtml(product.descriptionHtml || ""),
-        presetInstructions,
-      },
-    });
+    try {
+      const generated = await backendRequest({
+        backend,
+        pathname: "/generate-product-content",
+        method: "POST",
+        timeoutMs: CONTENT_GENERATION_TIMEOUT_MS,
+        retries: BACKEND_RETRY_ATTEMPTS,
+        body: {
+          clientId,
+          title: product.title,
+          mode,
+          language,
+          existingDescription: stripHtml(product.descriptionHtml || ""),
+          presetInstructions,
+        },
+      });
 
-    previews.push({
-      productId: product.id,
-      title: product.title,
-      beforeDescription: stripHtml(product.descriptionHtml || "") || "No description yet.",
-      beforeSeoTitle: product.seo?.title || "",
-      beforeSeoDescription: product.seo?.description || "",
-      generated,
-    });
+      previews.push({
+        productId: product.id,
+        title: product.title,
+        beforeDescription: stripHtml(product.descriptionHtml || "") || "No description yet.",
+        beforeSeoTitle: product.seo?.title || "",
+        beforeSeoDescription: product.seo?.description || "",
+        generated,
+      });
+    } catch (_error) {
+      failedProducts.push(product.title);
+    }
   }
 
   return {
-    errorMessage: "",
+    errorMessage:
+      !previews.length && failedProducts.length
+        ? "All selected products failed to generate. Please retry."
+        : "",
     previews,
+    failedProducts,
     mode,
     language,
   };
+}
+
+async function safeRecordQualityEvent({
+  backend,
+  clientId,
+  eventType,
+  outcome,
+  durationMs,
+  errorCode = "",
+}) {
+  try {
+    await backendRequest({
+      backend,
+      pathname: "/quality-events",
+      method: "POST",
+      timeoutMs: 1200,
+      body: {
+        clientId,
+        eventType,
+        outcome,
+        durationMs,
+        errorCode,
+      },
+    });
+  } catch (_error) {
+    // Do not fail primary flows because analytics logging failed.
+  }
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function getErrorCodeFromMessage(message) {
+  const normalized = String(message || "").toLowerCase();
+  if (normalized.includes("timed out")) {
+    return "timeout";
+  }
+  if (normalized.includes("limit")) {
+    return "limit";
+  }
+  return "generic";
+}
+
+function getBulkGenerationBlockedReason({
+  needsProfile,
+  planFeatures,
+  shopStatus,
+  selectedCount,
+}) {
+  if (needsProfile) {
+    return "Complete your business profile before running bulk generation.";
+  }
+  if (!planFeatures.bulkGenerationEnabled) {
+    return "Bulk generation requires Growth or Scale.";
+  }
+  if (!selectedCount) {
+    return "No products are currently selected from the audit list.";
+  }
+
+  const usedGenerations = Number(shopStatus?.usage?.count || 0);
+  const generationLimit = Number(shopStatus?.plan?.monthly_generation_limit || 0);
+  const remaining = Math.max(0, generationLimit - usedGenerations);
+
+  if (remaining <= 0) {
+    return "No generation credits left this month.";
+  }
+  if (remaining < selectedCount) {
+    return `Only ${remaining} generation credit${remaining === 1 ? "" : "s"} remaining, but ${selectedCount} products are selected.`;
+  }
+
+  return "";
 }
 
 async function updateShopifyProduct(admin, { productId, generated }) {

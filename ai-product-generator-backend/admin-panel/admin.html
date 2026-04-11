@@ -50,6 +50,12 @@
           <h2>Admin workspace</h2>
           <p id="paymentInstructions" class="muted"></p>
           <p id="supportContact" class="muted"></p>
+          <div class="qualityRow">
+            <span id="metricGenerationSuccess" class="miniMetric">Generation success: 0%</span>
+            <span id="metricTimeoutRate" class="miniMetric">Timeout rate: 0%</span>
+            <span id="metricAvgResponse" class="miniMetric">Avg response: 0 ms</span>
+            <span id="metricSaveSuccess" class="miniMetric">Save-to-product success: 0%</span>
+          </div>
         </div>
         <div class="topBarActions">
           <button id="refreshBtn" class="secondary">Refresh Data</button>
@@ -71,6 +77,19 @@
             <div class="panelFilters">
               <label for="subscriptionSearch" class="srOnly">Search stores</label>
               <input id="subscriptionSearch" type="text" placeholder="Search by store or domain" />
+              <div class="inlineControls">
+                <select id="storeSort">
+                  <option value="name_asc">Name A-Z</option>
+                  <option value="name_desc">Name Z-A</option>
+                  <option value="plan_desc">Highest plan first</option>
+                  <option value="updated_desc">Recently updated</option>
+                </select>
+                <select id="storePageSize">
+                  <option value="8">8 / page</option>
+                  <option value="12" selected>12 / page</option>
+                  <option value="20">20 / page</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -95,9 +114,31 @@
               <button id="requestFilterAll" class="statusTab" type="button" data-status="">All</button>
             </div>
           </div>
-
+          <div class="inlineControls">
+            <input id="requestSearch" type="text" placeholder="Search request by store/contact/ref" />
+            <select id="requestSort">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name_asc">Store A-Z</option>
+            </select>
+            <select id="requestPageSize">
+              <option value="8">8 / page</option>
+              <option value="12" selected>12 / page</option>
+              <option value="20">20 / page</option>
+            </select>
+          </div>
           <div id="requestsList" class="requestList"></div>
         </div>
+      </section>
+
+      <section class="card">
+        <div class="panelHead">
+          <div>
+            <h3>Admin audit logs</h3>
+            <p class="muted">Tracks approve/reject and subscription override actions.</p>
+          </div>
+        </div>
+        <div id="auditLogsList" class="requestList"></div>
       </section>
     </section>
 

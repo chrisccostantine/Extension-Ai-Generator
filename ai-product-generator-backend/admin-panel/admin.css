@@ -121,6 +121,23 @@ h4 {
   min-width: 140px;
 }
 
+.qualityRow {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.miniMetric {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(124, 167, 255, 0.16);
+  color: #dce8ff;
+  font-size: 12px;
+}
+
 .fieldLabel {
   display: block;
   margin-bottom: 6px;
@@ -198,6 +215,17 @@ button.reject {
 
 .panelFilters {
   min-width: 280px;
+}
+
+.inlineControls {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inlineControls > * {
+  flex: 1 1 140px;
 }
 
 .storesLayout {

@@ -362,6 +362,32 @@ app.get("/image-jobs", async (req, res) => {
   }
 });
 
+app.post("/quality-events", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const shop = await ensureShop(clientId);
+    const event = await recordQualityEvent({
+      shopId: shop.id,
+      clientId,
+      eventType: sanitizeText(req.body?.eventType, 80) || "generic",
+      outcome: sanitizeText(req.body?.outcome, 24) || "success",
+      durationMs: Number(req.body?.durationMs || 0),
+      errorCode: sanitizeText(req.body?.errorCode, 80),
+    });
+
+    return res.status(201).json({ event });
+  } catch (error) {
+    console.error("Failed to record quality event:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to record quality event.",
+    });
+  }
+});
+
 app.post("/generate-product-images", async (req, res) => {
   if (!isAuthorized(req)) {
     return res.status(401).json({
@@ -375,9 +401,15 @@ app.post("/generate-product-images", async (req, res) => {
     });
   }
 
+  const requestStartedAt = Date.now();
+  let metricShopId = null;
+  let metricClientId = normalizeClientId(req.body?.clientId);
+
   try {
     const clientId = normalizeClientId(req.body?.clientId);
+    metricClientId = clientId;
     const shop = await ensureShop(clientId);
+    metricShopId = shop.id;
     const plan = await getPlanForShop(shop.id);
     const imageUsage = await getImageUsageForShop(shop.id);
     const instructionText = sanitizeText(req.body?.instructionText, 1200);
@@ -473,6 +505,14 @@ app.post("/generate-product-images", async (req, res) => {
         `${stylePreset}:${sourceImages.length}:${index + 1}`,
       );
     }
+    await recordQualityEvent({
+      shopId: shop.id,
+      clientId,
+      eventType: "image_generation",
+      outcome: "success",
+      durationMs: Date.now() - requestStartedAt,
+      errorCode: "",
+    });
 
     return res.json({
       message: "Product images generated successfully.",
@@ -485,6 +525,14 @@ app.post("/generate-product-images", async (req, res) => {
       },
     });
   } catch (error) {
+    await recordQualityEvent({
+      shopId: metricShopId,
+      clientId: metricClientId,
+      eventType: "image_generation",
+      outcome: "failed",
+      durationMs: Date.now() - requestStartedAt,
+      errorCode: classifyBackendErrorCode(error),
+    });
     console.error("Failed to generate product images:", error);
     return res.status(500).json({
       error: error?.message || "Failed to generate product images.",
@@ -740,8 +788,12 @@ app.post("/generate-product-content", async (req, res) => {
     });
   }
 
+  const requestStartedAt = Date.now();
+  let metricShopId = null;
+
   try {
     const shop = await ensureShop(clientId);
+    metricShopId = shop.id;
     const plan = await getPlanForShop(shop.id);
     const usage = await getUsageForClient(clientId);
     const profile = await getShopProfile(shop.id);
@@ -837,6 +889,14 @@ app.post("/generate-product-content", async (req, res) => {
     const parsedOutput = JSON.parse(response.output_text);
     const updatedUsage = await incrementUsage(shop.id, clientId);
     await recordUsageEvent(shop.id, updatedUsage.period, title);
+    await recordQualityEvent({
+      shopId: shop.id,
+      clientId,
+      eventType: "content_generation",
+      outcome: "success",
+      durationMs: Date.now() - requestStartedAt,
+      errorCode: "",
+    });
 
     return res.json({
       description: parsedOutput.description,
@@ -860,6 +920,14 @@ app.post("/generate-product-content", async (req, res) => {
       profile,
     });
   } catch (error) {
+    await recordQualityEvent({
+      shopId: metricShopId,
+      clientId,
+      eventType: "content_generation",
+      outcome: "failed",
+      durationMs: Date.now() - requestStartedAt,
+      errorCode: classifyBackendErrorCode(error),
+    });
     console.error("Failed to generate product content:", error);
     return res.status(500).json({
       error:
@@ -943,6 +1011,38 @@ app.get("/admin/api/catalog-jobs", async (req, res) => {
   }
 });
 
+app.get("/admin/api/audit-logs", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const logs = await listAdminAuditLogs(100);
+    return res.json({ logs });
+  } catch (error) {
+    console.error("Failed to load admin audit logs:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load admin audit logs.",
+    });
+  }
+});
+
+app.get("/admin/api/quality-metrics", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized admin access." });
+  }
+
+  try {
+    const metrics = await getAdminQualityMetrics();
+    return res.json({ metrics });
+  } catch (error) {
+    console.error("Failed to load quality metrics:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to load quality metrics.",
+    });
+  }
+});
+
 app.post("/admin/api/subscriptions/:shopId/override", async (req, res) => {
   if (!isAdminAuthorized(req)) {
     return res.status(401).json({ error: "Unauthorized admin access." });
@@ -965,6 +1065,17 @@ app.post("/admin/api/subscriptions/:shopId/override", async (req, res) => {
       shopId,
       planName,
       billingInterval,
+    });
+    await recordAdminAuditLog({
+      actionType: "subscription_override",
+      entityType: "shop",
+      entityId: String(shopId),
+      shopId,
+      adminActor: "manual-admin",
+      details: {
+        planName,
+        billingInterval,
+      },
     });
 
     return res.json({
@@ -997,6 +1108,16 @@ app.post("/admin/api/plan-requests/:id/approve", async (req, res) => {
       adminNotes,
       "manual-admin",
     );
+    await recordAdminAuditLog({
+      actionType: "plan_request_approved",
+      entityType: "plan_request",
+      entityId: String(requestId),
+      shopId: Number(updatedRequest?.shop_id || 0) || null,
+      adminActor: "manual-admin",
+      details: {
+        adminNotes,
+      },
+    });
 
     return res.json({
       message: "Plan request approved and subscription updated.",
@@ -1028,6 +1149,16 @@ app.post("/admin/api/plan-requests/:id/reject", async (req, res) => {
       adminNotes,
       "manual-admin",
     );
+    await recordAdminAuditLog({
+      actionType: "plan_request_rejected",
+      entityType: "plan_request",
+      entityId: String(requestId),
+      shopId: Number(updatedRequest?.shop_id || 0) || null,
+      adminActor: "manual-admin",
+      details: {
+        adminNotes,
+      },
+    });
 
     return res.json({
       message: "Plan request rejected.",
@@ -1736,6 +1867,32 @@ async function initializeDatabase() {
       sql: `
         ALTER TABLE plans
         ADD COLUMN IF NOT EXISTS monthly_image_limit INTEGER NOT NULL DEFAULT 0
+      `,
+    },
+    {
+      version: "014_admin_quality_logs",
+      sql: `
+        CREATE TABLE IF NOT EXISTS admin_audit_logs (
+          id SERIAL PRIMARY KEY,
+          action_type TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL DEFAULT '',
+          shop_id INTEGER REFERENCES shops(id) ON DELETE SET NULL,
+          admin_actor TEXT NOT NULL DEFAULT 'manual-admin',
+          details_json TEXT NOT NULL DEFAULT '{}',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS quality_events (
+          id SERIAL PRIMARY KEY,
+          shop_id INTEGER REFERENCES shops(id) ON DELETE SET NULL,
+          client_id TEXT NOT NULL DEFAULT '',
+          event_type TEXT NOT NULL,
+          outcome TEXT NOT NULL DEFAULT 'success',
+          duration_ms INTEGER NOT NULL DEFAULT 0,
+          error_code TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
       `,
     },
   ];
@@ -3238,4 +3395,198 @@ async function overrideSubscriptionForShop({ shopId, planName, billingInterval }
 
   const subscriptions = await listAdminSubscriptions();
   return subscriptions.find((subscription) => subscription.shop_id === shopId) || null;
+}
+
+async function recordAdminAuditLog({
+  actionType,
+  entityType,
+  entityId,
+  shopId,
+  adminActor,
+  details,
+}) {
+  if (!pool) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      INSERT INTO admin_audit_logs (
+        action_type,
+        entity_type,
+        entity_id,
+        shop_id,
+        admin_actor,
+        details_json
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, action_type, entity_type, entity_id, shop_id, admin_actor, details_json, created_at
+    `,
+    [
+      sanitizeText(actionType, 80),
+      sanitizeText(entityType, 80),
+      sanitizeText(entityId, 120),
+      Number.isInteger(shopId) && shopId > 0 ? shopId : null,
+      sanitizeText(adminActor, 80) || "manual-admin",
+      JSON.stringify(details || {}),
+    ],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function listAdminAuditLogs(limit = 100) {
+  if (!pool) {
+    return [];
+  }
+
+  const safeLimit = Math.min(200, Math.max(1, Number(limit || 100)));
+  const result = await pool.query(
+    `
+      SELECT
+        admin_audit_logs.id,
+        admin_audit_logs.action_type,
+        admin_audit_logs.entity_type,
+        admin_audit_logs.entity_id,
+        admin_audit_logs.shop_id,
+        admin_audit_logs.admin_actor,
+        admin_audit_logs.details_json,
+        admin_audit_logs.created_at,
+        shops.client_id,
+        shops.display_name
+      FROM admin_audit_logs
+      LEFT JOIN shops ON shops.id = admin_audit_logs.shop_id
+      ORDER BY admin_audit_logs.created_at DESC
+      LIMIT $1
+    `,
+    [safeLimit],
+  );
+
+  return result.rows.map((row) => ({
+    ...row,
+    details: parseJsonObjectSafely(row.details_json),
+  }));
+}
+
+function parseJsonObjectSafely(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return {};
+  }
+}
+
+async function recordQualityEvent({
+  shopId,
+  clientId,
+  eventType,
+  outcome,
+  durationMs,
+  errorCode,
+}) {
+  if (!pool) {
+    return null;
+  }
+
+  const safeDuration = Math.max(0, Math.round(Number(durationMs || 0)));
+  const result = await pool.query(
+    `
+      INSERT INTO quality_events (
+        shop_id,
+        client_id,
+        event_type,
+        outcome,
+        duration_ms,
+        error_code
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, event_type, outcome, duration_ms, error_code, created_at
+    `,
+    [
+      Number.isInteger(shopId) && shopId > 0 ? shopId : null,
+      sanitizeText(clientId, 120),
+      sanitizeText(eventType, 80),
+      sanitizeText(outcome, 24),
+      safeDuration,
+      sanitizeText(errorCode, 80),
+    ],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function getAdminQualityMetrics() {
+  if (!pool) {
+    return {
+      generationSuccessRate: 0,
+      timeoutRate: 0,
+      averageResponseMs: 0,
+      saveToProductSuccessRate: 0,
+      sampleSize: 0,
+    };
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        COUNT(*) FILTER (WHERE event_type IN ('content_generation', 'image_generation')) AS generation_total,
+        COUNT(*) FILTER (
+          WHERE event_type IN ('content_generation', 'image_generation')
+            AND outcome = 'success'
+        ) AS generation_success,
+        COUNT(*) FILTER (
+          WHERE event_type IN ('content_generation', 'image_generation')
+            AND error_code = 'timeout'
+        ) AS timeout_count,
+        AVG(duration_ms) FILTER (
+          WHERE event_type IN ('content_generation', 'image_generation')
+        ) AS generation_avg_ms,
+        COUNT(*) FILTER (WHERE event_type = 'save_to_product') AS save_total,
+        COUNT(*) FILTER (
+          WHERE event_type = 'save_to_product'
+            AND outcome = 'success'
+        ) AS save_success
+      FROM quality_events
+      WHERE created_at >= NOW() - INTERVAL '30 days'
+    `,
+  );
+
+  const row = result.rows[0] || {};
+  const generationTotal = Number(row.generation_total || 0);
+  const generationSuccess = Number(row.generation_success || 0);
+  const timeoutCount = Number(row.timeout_count || 0);
+  const saveTotal = Number(row.save_total || 0);
+  const saveSuccess = Number(row.save_success || 0);
+
+  return {
+    generationSuccessRate: generationTotal
+      ? Math.round((generationSuccess / generationTotal) * 100)
+      : 0,
+    timeoutRate: generationTotal
+      ? Math.round((timeoutCount / generationTotal) * 100)
+      : 0,
+    averageResponseMs: Math.round(Number(row.generation_avg_ms || 0)),
+    saveToProductSuccessRate: saveTotal
+      ? Math.round((saveSuccess / saveTotal) * 100)
+      : 0,
+    sampleSize: generationTotal + saveTotal,
+  };
+}
+
+function classifyBackendErrorCode(error) {
+  const message = String(error?.message || "").toLowerCase();
+  if (message.includes("timed out") || message.includes("timeout")) {
+    return "timeout";
+  }
+  if (message.includes("limit")) {
+    return "limit";
+  }
+  if (message.includes("unauthorized") || message.includes("forbidden")) {
+    return "auth";
+  }
+  return "generic";
 }

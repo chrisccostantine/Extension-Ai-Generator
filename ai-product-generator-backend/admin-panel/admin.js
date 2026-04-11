@@ -14,7 +14,13 @@ const subscriptionSearchInput = document.getElementById("subscriptionSearch");
 const storesListElement = document.getElementById("storesList");
 const storeDetailsElement = document.getElementById("storeDetails");
 const requestsList = document.getElementById("requestsList");
+const auditLogsList = document.getElementById("auditLogsList");
 const statusFilterButtons = Array.from(document.querySelectorAll(".statusTab"));
+const requestSearchInput = document.getElementById("requestSearch");
+const requestSortSelect = document.getElementById("requestSort");
+const requestPageSizeSelect = document.getElementById("requestPageSize");
+const storeSortSelect = document.getElementById("storeSort");
+const storePageSizeSelect = document.getElementById("storePageSize");
 
 const statusElement = document.getElementById("status");
 const pendingCountElement = document.getElementById("pendingCount");
@@ -23,6 +29,10 @@ const activeShopsElement = document.getElementById("activeShops");
 const totalUsageElement = document.getElementById("totalUsage");
 const paymentInstructionsElement = document.getElementById("paymentInstructions");
 const supportContactElement = document.getElementById("supportContact");
+const metricGenerationSuccessElement = document.getElementById("metricGenerationSuccess");
+const metricTimeoutRateElement = document.getElementById("metricTimeoutRate");
+const metricAvgResponseElement = document.getElementById("metricAvgResponse");
+const metricSaveSuccessElement = document.getElementById("metricSaveSuccess");
 
 const STORAGE_KEY = "shopify_ai_admin_token";
 
@@ -33,6 +43,9 @@ let catalogJobsCache = [];
 let activeView = "stores";
 let requestStatusFilter = "pending";
 let selectedShopId = null;
+let storePage = 1;
+let requestPage = 1;
+let auditLogsCache = [];
 
 initialize();
 
@@ -62,6 +75,7 @@ logoutButton.addEventListener("click", () => {
   storesListElement.innerHTML = "";
   storeDetailsElement.innerHTML = "";
   requestsList.innerHTML = "";
+  auditLogsList.innerHTML = "";
   subscriptionSearchInput.value = "";
   setStatus("Logged out.");
 });
@@ -79,12 +93,39 @@ requestsTabButton.addEventListener("click", () => {
 });
 
 subscriptionSearchInput.addEventListener("input", () => {
+  storePage = 1;
   renderStoresList();
+});
+
+storeSortSelect.addEventListener("change", () => {
+  storePage = 1;
+  renderStoresList();
+});
+
+storePageSizeSelect.addEventListener("change", () => {
+  storePage = 1;
+  renderStoresList();
+});
+
+requestSearchInput.addEventListener("input", () => {
+  requestPage = 1;
+  renderRequests(requestsCache);
+});
+
+requestSortSelect.addEventListener("change", () => {
+  requestPage = 1;
+  renderRequests(requestsCache);
+});
+
+requestPageSizeSelect.addEventListener("change", () => {
+  requestPage = 1;
+  renderRequests(requestsCache);
 });
 
 statusFilterButtons.forEach((button) => {
   button.addEventListener("click", async () => {
     requestStatusFilter = button.dataset.status || "";
+    requestPage = 1;
     statusFilterButtons.forEach((currentButton) => {
       currentButton.classList.toggle("active", currentButton === button);
     });
@@ -169,6 +210,16 @@ window.selectStoreById = function selectStoreById(shopId) {
   renderStoreDetails();
 };
 
+window.changeStorePage = function changeStorePage(delta) {
+  storePage = Math.max(1, storePage + Number(delta || 0));
+  renderStoresList();
+};
+
+window.changeRequestPage = function changeRequestPage(delta) {
+  requestPage = Math.max(1, requestPage + Number(delta || 0));
+  renderRequests(requestsCache);
+};
+
 async function initialize() {
   const savedToken = localStorage.getItem(STORAGE_KEY) || "";
   adminTokenInput.value = savedToken;
@@ -212,7 +263,13 @@ async function loadDashboard() {
 
     availablePlans = data.plans || [];
 
-    await Promise.all([loadSubscriptions(), loadRequests(), loadCatalogJobs()]);
+    await Promise.all([
+      loadSubscriptions(),
+      loadRequests(),
+      loadCatalogJobs(),
+      loadQualityMetrics(),
+      loadAuditLogs(),
+    ]);
     switchView(activeView);
     setStatus("Dashboard updated.");
   } catch (error) {
@@ -293,6 +350,43 @@ async function loadCatalogJobs() {
   renderStoreDetails();
 }
 
+async function loadQualityMetrics() {
+  const token = localStorage.getItem(STORAGE_KEY) || "";
+  const response = await fetch("/admin/api/quality-metrics", {
+    headers: {
+      "x-admin-token": token,
+    },
+  });
+  const data = await parseApiResponse(response);
+
+  if (!response.ok) {
+    throw new Error(data.error || "Could not load quality metrics.");
+  }
+
+  const metrics = data.metrics || {};
+  metricGenerationSuccessElement.textContent = `Generation success: ${formatNumber(metrics.generationSuccessRate)}%`;
+  metricTimeoutRateElement.textContent = `Timeout rate: ${formatNumber(metrics.timeoutRate)}%`;
+  metricAvgResponseElement.textContent = `Avg response: ${formatNumber(metrics.averageResponseMs)} ms`;
+  metricSaveSuccessElement.textContent = `Save-to-product success: ${formatNumber(metrics.saveToProductSuccessRate)}%`;
+}
+
+async function loadAuditLogs() {
+  const token = localStorage.getItem(STORAGE_KEY) || "";
+  const response = await fetch("/admin/api/audit-logs", {
+    headers: {
+      "x-admin-token": token,
+    },
+  });
+  const data = await parseApiResponse(response);
+
+  if (!response.ok) {
+    throw new Error(data.error || "Could not load admin audit logs.");
+  }
+
+  auditLogsCache = data.logs || [];
+  renderAuditLogs(auditLogsCache);
+}
+
 function switchView(view) {
   activeView = view;
 
@@ -306,6 +400,8 @@ function switchView(view) {
 
 function renderStoresList() {
   const query = (subscriptionSearchInput.value || "").trim().toLowerCase();
+  const sortBy = storeSortSelect?.value || "name_asc";
+  const pageSize = Math.max(1, Number(storePageSizeSelect?.value || 12));
 
   const filteredStores = subscriptionsCache.filter((subscription) => {
     if (!query) {
@@ -316,12 +412,34 @@ function renderStoresList() {
     return haystack.includes(query);
   });
 
-  if (!filteredStores.length) {
+  const sortedStores = [...filteredStores].sort((left, right) => {
+    if (sortBy === "name_desc") {
+      return String(right.display_name || right.client_id || "").localeCompare(
+        String(left.display_name || left.client_id || ""),
+      );
+    }
+    if (sortBy === "plan_desc") {
+      return Number(right.price_cents || 0) - Number(left.price_cents || 0);
+    }
+    if (sortBy === "updated_desc") {
+      return new Date(right.updated_at || 0).getTime() - new Date(left.updated_at || 0).getTime();
+    }
+    return String(left.display_name || left.client_id || "").localeCompare(
+      String(right.display_name || right.client_id || ""),
+    );
+  });
+
+  if (!sortedStores.length) {
     storesListElement.innerHTML = "<p class='muted'>No stores matched this search.</p>";
     return;
   }
 
-  storesListElement.innerHTML = filteredStores
+  const totalPages = Math.max(1, Math.ceil(sortedStores.length / pageSize));
+  storePage = Math.min(totalPages, Math.max(1, storePage));
+  const pageStart = (storePage - 1) * pageSize;
+  const pageItems = sortedStores.slice(pageStart, pageStart + pageSize);
+
+  storesListElement.innerHTML = pageItems
     .map((store) => {
       const isSelected = Number(store.shop_id) === Number(selectedShopId);
       return `
@@ -336,7 +454,13 @@ function renderStoresList() {
         </button>
       `;
     })
-    .join("");
+    .join("")
+    + renderPaginationControls({
+      currentPage: storePage,
+      totalPages,
+      onPrevious: "window.changeStorePage(-1)",
+      onNext: "window.changeStorePage(1)",
+    });
 }
 
 function renderStoreDetails() {
@@ -421,12 +545,47 @@ function renderStoreDetails() {
 }
 
 function renderRequests(requests) {
-  if (!requests.length) {
+  const searchQuery = (requestSearchInput?.value || "").trim().toLowerCase();
+  const sortBy = requestSortSelect?.value || "newest";
+  const pageSize = Math.max(1, Number(requestPageSizeSelect?.value || 12));
+
+  const filteredRequests = (requests || []).filter((request) => {
+    if (!searchQuery) {
+      return true;
+    }
+
+    const haystack = `
+      ${request.display_name || ""}
+      ${request.client_id || ""}
+      ${request.contact_name || ""}
+      ${request.payment_reference || ""}
+    `.toLowerCase();
+    return haystack.includes(searchQuery);
+  });
+
+  const sortedRequests = [...filteredRequests].sort((left, right) => {
+    if (sortBy === "oldest") {
+      return new Date(left.created_at || 0).getTime() - new Date(right.created_at || 0).getTime();
+    }
+    if (sortBy === "name_asc") {
+      return String(left.display_name || left.client_id || "").localeCompare(
+        String(right.display_name || right.client_id || ""),
+      );
+    }
+    return new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime();
+  });
+
+  if (!sortedRequests.length) {
     requestsList.innerHTML = "<p class='muted'>No plan requests found for this filter.</p>";
     return;
   }
 
-  requestsList.innerHTML = requests
+  const totalPages = Math.max(1, Math.ceil(sortedRequests.length / pageSize));
+  requestPage = Math.min(totalPages, Math.max(1, requestPage));
+  const pageStart = (requestPage - 1) * pageSize;
+  const pageItems = sortedRequests.slice(pageStart, pageStart + pageSize);
+
+  requestsList.innerHTML = pageItems
     .map(
       (request) => `
         <article class="requestCard">
@@ -455,7 +614,13 @@ function renderRequests(requests) {
         </article>
       `,
     )
-    .join("");
+    .join("")
+    + renderPaginationControls({
+      currentPage: requestPage,
+      totalPages,
+      onPrevious: "window.changeRequestPage(-1)",
+      onNext: "window.changeRequestPage(1)",
+    });
 }
 
 function renderActions(requestId) {
@@ -495,6 +660,41 @@ function renderProofLink(request) {
       <strong>Payment proof</strong>
       <img class="proofImage" src="${safeDataUrl}" alt="${safeLabel}" />
       <p><a class="proofLink" href="${safeDataUrl}" target="_blank" rel="noreferrer">${safeLabel}</a></p>
+    </div>
+  `;
+}
+
+function renderAuditLogs(logs) {
+  if (!logs.length) {
+    auditLogsList.innerHTML = "<p class='muted'>No admin actions logged yet.</p>";
+    return;
+  }
+
+  auditLogsList.innerHTML = logs
+    .slice(0, 30)
+    .map(
+      (log) => `
+        <article class="requestCard">
+          <p><strong>${escapeHtml(log.action_type || "action")}</strong> | ${formatDate(log.created_at)}</p>
+          <p class="muted">Actor: ${escapeHtml(log.admin_actor || "manual-admin")} | Store: ${escapeHtml(log.display_name || log.client_id || "N/A")}</p>
+          <p class="muted">Entity: ${escapeHtml(log.entity_type || "")} #${escapeHtml(log.entity_id || "")}</p>
+          <p class="muted">${escapeHtml(JSON.stringify(log.details || {}))}</p>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderPaginationControls({ currentPage, totalPages, onPrevious, onNext }) {
+  if (totalPages <= 1) {
+    return "";
+  }
+
+  return `
+    <div class="requestButtons">
+      <button type="button" class="secondary" onclick="${onPrevious}" ${currentPage <= 1 ? "disabled" : ""}>Previous</button>
+      <span class="muted">Page ${currentPage} of ${totalPages}</span>
+      <button type="button" class="secondary" onclick="${onNext}" ${currentPage >= totalPages ? "disabled" : ""}>Next</button>
     </div>
   `;
 }
