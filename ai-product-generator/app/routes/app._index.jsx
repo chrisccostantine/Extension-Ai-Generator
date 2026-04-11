@@ -28,8 +28,10 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
+  const pathname = new URL(request.url).pathname;
+  const isCatalogAuditRoute = pathname.endsWith("/catalog-audit");
   const auditFilters = getAuditFiltersFromRequest(request);
-  const shouldLoadAudit = auditFilters.loadAudit;
+  const shouldLoadAudit = auditFilters.loadAudit || isCatalogAuditRoute;
   const audit = shouldLoadAudit
     ? await withTimeout(
         getCatalogAudit(admin, auditFilters),
