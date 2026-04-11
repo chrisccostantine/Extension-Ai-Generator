@@ -128,13 +128,13 @@ function Extension() {
               value={mode}
               onChange={(event) => setMode(event.target.value)}
             >
-              <option value="rewrite">Rewrite</option>
-              <option value="conversion">Conversion focused</option>
-              <option value="seo">SEO optimized</option>
-              <option value="technical">Technical</option>
-              <option value="benefits">Benefits</option>
-              <option value="luxury">Luxury</option>
-              <option value="mobile">Mobile</option>
+              <s-option value="rewrite">Rewrite</s-option>
+              <s-option value="conversion">Conversion focused</s-option>
+              <s-option value="seo">SEO optimized</s-option>
+              <s-option value="technical">Technical</s-option>
+              <s-option value="benefits">Benefits</s-option>
+              <s-option value="luxury">Luxury</s-option>
+              <s-option value="mobile">Mobile</s-option>
             </s-select>
 
             <s-select
@@ -142,9 +142,9 @@ function Extension() {
               value={language}
               onChange={(event) => setLanguage(event.target.value)}
             >
-              <option value="English">English</option>
-              <option value="Arabic">Arabic</option>
-              <option value="French">French</option>
+              <s-option value="English">English</s-option>
+              <s-option value="Arabic">Arabic</s-option>
+              <s-option value="French">French</s-option>
             </s-select>
 
             <s-select
@@ -152,9 +152,9 @@ function Extension() {
               value={target}
               onChange={(event) => setTarget(event.target.value)}
             >
-              <option value="full">Description + SEO</option>
-              <option value="description">Description only</option>
-              <option value="seo">SEO only</option>
+              <s-option value="full">Description + SEO</s-option>
+              <s-option value="description">Description only</s-option>
+              <s-option value="seo">SEO only</s-option>
             </s-select>
           </s-stack>
         </s-box>
