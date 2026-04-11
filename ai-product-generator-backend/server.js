@@ -2001,8 +2001,8 @@ async function seedPlans() {
         '1,000 generations per month, 20 image credits, bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
         1000,
         20,
-        3900,
-        39000
+        3000,
+        30000
       ),
       (
         'scale',
