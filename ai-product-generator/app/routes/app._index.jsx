@@ -15,6 +15,8 @@ const PAYMENT_INSTRUCTIONS_TEXT =
   "Transfers through Whish, BOB Finance, OMT, or Bank Audi Neo must be sent to +961 70 221 936. After payment, submit your transaction reference and proof screenshot in the app.";
 const SUPPORT_CONTACT_TEXT =
   "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com";
+const SUPPORT_EMAIL = "scalora.socialmedia.agency@gmail.com";
+const SUPPORT_PHONE = "+961 81 106 116";
 const PAYMENT_METHOD_OPTIONS = [
   "Whish",
   "OMT Wallet",
@@ -840,11 +842,14 @@ export default function AppIndex() {
   const imageCreditsRemaining = getRemainingImageCredits(data.shopStatus);
   const isCatalogAuditPage = location.pathname.endsWith("/catalog-audit");
   const isPricingPage = location.pathname.endsWith("/pricing");
-  const isHomePage = !isCatalogAuditPage && !isPricingPage;
+  const isSupportPage = location.pathname.endsWith("/support");
+  const isHomePage = !isCatalogAuditPage && !isPricingPage && !isSupportPage;
   const pageHeading = isCatalogAuditPage
     ? "Catalog Audit"
     : isPricingPage
       ? "Pricing"
+      : isSupportPage
+        ? "Support"
       : "Scalora Product AI Suite";
   const onboardingChecklist = buildOnboardingChecklist({
     profile,
@@ -1671,6 +1676,30 @@ export default function AppIndex() {
       </s-section>
       )}
 
+      {isSupportPage && (
+      <s-section heading="Contact support">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            Need help with setup, billing, generation quality, or technical issues? Our team is here to help.
+          </s-paragraph>
+          <s-box padding="base" borderWidth="base" borderRadius="base">
+            <s-stack direction="block" gap="tight">
+              <s-paragraph>
+                <strong>Email:</strong> {SUPPORT_EMAIL}
+              </s-paragraph>
+              <s-paragraph>
+                <strong>Phone / WhatsApp:</strong> {SUPPORT_PHONE}
+              </s-paragraph>
+            </s-stack>
+          </s-box>
+          <s-paragraph>
+            For faster support, include your shop domain and a short description of the issue.
+          </s-paragraph>
+        </s-stack>
+      </s-section>
+      )}
+
+      {!isSupportPage && (
       <s-section slot="aside" heading="Manual billing">
         <s-paragraph>
           {PAYMENT_INSTRUCTIONS_TEXT}
@@ -1683,6 +1712,7 @@ export default function AppIndex() {
           reference so your upgrade can be reviewed and activated.
         </s-paragraph>
       </s-section>
+      )}
     </s-page>
   );
 }
