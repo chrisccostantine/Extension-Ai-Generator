@@ -123,38 +123,39 @@ function Extension() {
         <s-paragraph>{i18n.translate("description")}</s-paragraph>
         <s-box padding="base" borderWidth="base" borderRadius="base">
           <s-stack direction="block" gap="tight">
-            <label htmlFor="mode">Mode</label>
-            <select id="mode" value={mode} onChange={(event) => setMode(event.target.value)}>
+            <s-select
+              label="Mode"
+              value={mode}
+              onChange={(event) => setMode(event.target.value)}
+            >
               <option value="rewrite">Rewrite</option>
-              <option value="conversion">Conversion</option>
-              <option value="seo">SEO</option>
+              <option value="conversion">Conversion focused</option>
+              <option value="seo">SEO optimized</option>
               <option value="technical">Technical</option>
               <option value="benefits">Benefits</option>
               <option value="luxury">Luxury</option>
               <option value="mobile">Mobile</option>
-            </select>
+            </s-select>
 
-            <label htmlFor="language">Language</label>
-            <select
-              id="language"
+            <s-select
+              label="Language"
               value={language}
               onChange={(event) => setLanguage(event.target.value)}
             >
               <option value="English">English</option>
               <option value="Arabic">Arabic</option>
               <option value="French">French</option>
-            </select>
+            </s-select>
 
-            <label htmlFor="target">Update target</label>
-            <select
-              id="target"
+            <s-select
+              label="Update target"
               value={target}
               onChange={(event) => setTarget(event.target.value)}
             >
               <option value="full">Description + SEO</option>
               <option value="description">Description only</option>
               <option value="seo">SEO only</option>
-            </select>
+            </s-select>
           </s-stack>
         </s-box>
         {message ? <s-paragraph>{message}</s-paragraph> : null}
