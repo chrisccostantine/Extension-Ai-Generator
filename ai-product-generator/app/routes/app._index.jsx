@@ -1109,17 +1109,13 @@ export default function AppIndex() {
           </s-paragraph>
           <Form method="get">
             <input type="hidden" name="loadAudit" value="1" />
-            <s-button
-              type="submit"
-              variant={auditLoaded ? "secondary" : "primary"}
-              disabled={isAuditReloading}
-            >
+            <button type="submit" style={compactButtonStyle} disabled={isAuditReloading}>
               {isAuditReloading
                 ? "Loading audit..."
                 : auditLoaded
                   ? "Reload audit"
                   : "Load audit"}
-            </s-button>
+            </button>
           </Form>
         </s-stack>
 
@@ -1218,10 +1214,11 @@ export default function AppIndex() {
               </select>
             </div>
           </div>
-              <s-button type="submit" variant="secondary">Apply filters</s-button>
+              <button type="submit" style={compactButtonStyle}>Apply filters</button>
             </Form>
 
             <Form method="post" action="." encType="multipart/form-data">
+              <input type="hidden" name="intent" value="bulk-generate-audit" />
               <s-stack direction="block" gap="base">
                 {needsProfile && (
                   <div style={getNoticeStyle(false)}>
@@ -1340,8 +1337,6 @@ export default function AppIndex() {
             <div style={bulkActionRowStyle}>
               <s-button
                 type="submit"
-                name="intent"
-                value="bulk-generate-audit"
                 variant="secondary"
                 formaction="."
                 disabled={
@@ -1873,6 +1868,15 @@ const inputStyle = {
   border: "1px solid #c9cccf",
   boxSizing: "border-box",
   font: "inherit",
+};
+
+const compactButtonStyle = {
+  padding: "10px 14px",
+  borderRadius: "8px",
+  border: "1px solid #c9cccf",
+  background: "#f7f7f8",
+  font: "inherit",
+  cursor: "pointer",
 };
 
 const planGridStyle = {
