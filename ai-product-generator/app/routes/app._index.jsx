@@ -807,7 +807,7 @@ export default function AppIndex() {
     ? "Catalog Audit"
     : isPricingPage
       ? "Pricing"
-      : "AI Product Generator";
+      : "Scalora Product AI Suite";
   const onboardingChecklist = buildOnboardingChecklist({
     profile,
     presets,

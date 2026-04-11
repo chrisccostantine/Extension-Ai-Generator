@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "70386ff31b60cf083e54e9b2560603dc"
-name = "AI-Product-Generator"
+name = "Scalora Product AI Suite"
 application_url = "https://example.com"
 embedded = true
 
