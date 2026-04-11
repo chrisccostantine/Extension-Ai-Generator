@@ -800,8 +800,6 @@ export default function AppIndex() {
     paidPlans[0]?.name ||
     "";
   const auditItems = data.audit?.items || [];
-  const previewItems =
-    actionData?.intent === "preview-bulk-generate-audit" ? actionData.previews || [] : [];
   const [billingInterval, setBillingInterval] = useState("monthly");
   const imageCreditsRemaining = getRemainingImageCredits(data.shopStatus);
   const isCatalogAuditPage = location.pathname.endsWith("/catalog-audit");
@@ -1057,7 +1055,7 @@ export default function AppIndex() {
           <>
             {!planFeatures.bulkGenerationEnabled && (
               <div style={getNoticeStyle(false)}>
-                Bulk generation, preview, and bulk apply are available on the Growth and Scale plans.
+                Bulk generation and bulk apply are available on the Growth and Scale plans.
               </div>
             )}
 
@@ -1253,20 +1251,6 @@ export default function AppIndex() {
               <s-button
                 type="submit"
                 name="intent"
-                value="preview-bulk-generate-audit"
-                variant="secondary"
-                formaction="."
-                disabled={
-                  needsProfile ||
-                  !auditItems.length ||
-                  !planFeatures.bulkGenerationEnabled
-                }
-              >
-                Preview selected products
-              </s-button>
-              <s-button
-                type="submit"
-                name="intent"
                 value="bulk-generate-audit"
                 variant="secondary"
                 formaction="."
@@ -1283,105 +1267,9 @@ export default function AppIndex() {
             </Form>
 
             {actionData?.message &&
-              (actionData.intent === "bulk-generate-audit" ||
-                actionData.intent === "preview-bulk-generate-audit" ||
-                actionData.intent === "apply-preview-batch") && (
+              actionData.intent === "bulk-generate-audit" && (
               <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
             )}
-
-            {previewItems.length ? (
-              <s-stack direction="block" gap="base">
-                <s-heading>Preview before apply</s-heading>
-                <Form method="post" action=".">
-                  <input type="hidden" name="intent" value="apply-preview-batch" />
-                  <input
-                    type="hidden"
-                    name="previewsJson"
-                    value={JSON.stringify(previewItems)}
-                  />
-                  <div style={previewListStyle}>
-                    {previewItems.map((preview) => (
-                      <div key={preview.productId} style={previewCardStyle}>
-                        <div style={auditCardHeaderStyle}>
-                          <input
-                            id={`preview-${preview.productId}`}
-                            type="checkbox"
-                            name="selectedPreviewProductIds"
-                            value={preview.productId}
-                            defaultChecked
-                          />
-                          <label htmlFor={`preview-${preview.productId}`}>
-                            <strong>{preview.title}</strong>
-                          </label>
-                        </div>
-                        <div style={previewColumnsStyle}>
-                          <div style={previewPanelStyle}>
-                            <strong>Before</strong>
-                            <p style={previewTextStyle}>{preview.beforeDescription}</p>
-                            <p style={previewMetaStyle}>
-                              SEO title: {preview.beforeSeoTitle || "Missing"}
-                            </p>
-                            <p style={previewMetaStyle}>
-                              SEO description: {preview.beforeSeoDescription || "Missing"}
-                            </p>
-                          </div>
-                          <div style={previewPanelStyle}>
-                            <strong>After</strong>
-                            <p style={previewMetaHeadlineStyle}>
-                              {preview.generated.subtitle || "No subtitle generated"}
-                            </p>
-                            <p style={previewTextStyle}>{preview.generated.description}</p>
-                            <div style={previewListBlockStyle}>
-                              <strong>Highlights</strong>
-                              <ul style={previewBulletListStyle}>
-                                {(preview.generated.highlights || []).map((item) => (
-                                  <li key={`${preview.productId}-${item}`}>{item}</li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div style={previewListBlockStyle}>
-                              <strong>Composition</strong>
-                              <ul style={previewBulletListStyle}>
-                                {(preview.generated.composition || []).map((item) => (
-                                  <li key={`${preview.productId}-composition-${item}`}>{item}</li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div style={previewListBlockStyle}>
-                              <strong>FAQ</strong>
-                              <div style={previewFaqListStyle}>
-                                {(preview.generated.faq || []).map((item) => (
-                                  <div
-                                    key={`${preview.productId}-faq-${item.question}`}
-                                    style={previewFaqItemStyle}
-                                  >
-                                    <strong>{item.question}</strong>
-                                    <p style={previewMetaStyle}>{item.answer}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            <p style={previewMetaStyle}>
-                              SEO title: {preview.generated.metaTitle}
-                            </p>
-                            <p style={previewMetaStyle}>
-                              SEO description: {preview.generated.metaDescription}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <s-button
-                    type="submit"
-                    variant="secondary"
-                    disabled={!planFeatures.bulkGenerationEnabled}
-                  >
-                    Apply selected previews
-                  </s-button>
-                </Form>
-              </s-stack>
-            ) : null}
           </>
         )}
       </s-section>
