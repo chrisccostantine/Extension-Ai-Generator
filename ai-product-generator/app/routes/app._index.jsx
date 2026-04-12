@@ -1,5 +1,5 @@
 /* global Buffer, process */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Form,
   useActionData,
@@ -821,6 +821,21 @@ export default function AppIndex() {
     !profile.brand_tone ||
     !profile.target_audience ||
     !profile.description_style;
+  const [isBusinessProfileExpanded, setIsBusinessProfileExpanded] = useState(
+    needsProfile,
+  );
+
+  useEffect(() => {
+    if (needsProfile) {
+      setIsBusinessProfileExpanded(true);
+    }
+  }, [needsProfile]);
+
+  useEffect(() => {
+    if (actionData?.intent === "save-profile" && actionData?.ok) {
+      setIsBusinessProfileExpanded(false);
+    }
+  }, [actionData]);
 
   const paidPlans = useMemo(
     () => (data.plans || []).filter((plan) => plan.isPaid),
@@ -1349,106 +1364,140 @@ export default function AppIndex() {
       <s-section
         heading={needsProfile ? "Business onboarding" : "Business profile"}
       >
-        <Form method="post" action="." encType="multipart/form-data">
-          <input type="hidden" name="intent" value="save-profile" />
+        {isBusinessProfileExpanded ? (
+          <Form method="post" action="." encType="multipart/form-data">
+            <input type="hidden" name="intent" value="save-profile" />
+            <s-stack direction="block" gap="base">
+              <label htmlFor="businessType">Business type</label>
+              <input
+                id="businessType"
+                name="businessType"
+                type="text"
+                placeholder="Footwear, fashion, skincare, home decor..."
+                defaultValue={profile.business_type || ""}
+                style={inputStyle}
+              />
+
+              <label htmlFor="brandTone">Brand tone</label>
+              <input
+                id="brandTone"
+                name="brandTone"
+                type="text"
+                placeholder="Premium, sporty, playful, technical..."
+                defaultValue={profile.brand_tone || ""}
+                style={inputStyle}
+              />
+
+              <label htmlFor="targetAudience">Target audience</label>
+              <input
+                id="targetAudience"
+                name="targetAudience"
+                type="text"
+                placeholder="Women, men, athletes, parents, professionals..."
+                defaultValue={profile.target_audience || ""}
+                style={inputStyle}
+              />
+
+              <label htmlFor="descriptionStyle">Description style</label>
+              <input
+                id="descriptionStyle"
+                name="descriptionStyle"
+                type="text"
+                placeholder="Benefits-first, premium short copy, detailed..."
+                defaultValue={profile.description_style || ""}
+                style={inputStyle}
+              />
+
+              <label htmlFor="brandGuidelines">Brand guidelines</label>
+              <textarea
+                id="brandGuidelines"
+                name="brandGuidelines"
+                rows="5"
+                placeholder="Example: Write in a polished premium tone. Focus on comfort, materials, and lifestyle. Avoid slang and exaggerated claims."
+                defaultValue={profile.brand_guidelines || ""}
+                style={inputStyle}
+              />
+
+              <label htmlFor="defaultLanguage">Default language</label>
+              <select
+                id="defaultLanguage"
+                name="defaultLanguage"
+                defaultValue={profile.default_language || "English"}
+                style={inputStyle}
+              >
+                <option value="English">English</option>
+                <option value="Arabic">Arabic</option>
+                <option value="French">French</option>
+              </select>
+
+              <label htmlFor="preferredKeywords">Preferred keywords</label>
+              <input
+                id="preferredKeywords"
+                name="preferredKeywords"
+                type="text"
+                placeholder="premium sneakers, breathable mesh, comfort..."
+                defaultValue={profile.preferred_keywords || ""}
+                style={inputStyle}
+              />
+
+              <label htmlFor="bannedWords">Words to avoid</label>
+              <input
+                id="bannedWords"
+                name="bannedWords"
+                type="text"
+                placeholder="cheap, best ever, revolutionary..."
+                defaultValue={profile.banned_words || ""}
+                style={inputStyle}
+              />
+
+              <label htmlFor="brandExampleCopy">Example brand copy</label>
+              <textarea
+                id="brandExampleCopy"
+                name="brandExampleCopy"
+                rows="5"
+                placeholder="Paste a short example of the tone and style you want future generations to imitate."
+                defaultValue={profile.brand_example_copy || ""}
+                style={inputStyle}
+              />
+
+              <s-button type="submit" variant="secondary">
+                Save business profile
+              </s-button>
+            </s-stack>
+          </Form>
+        ) : (
           <s-stack direction="block" gap="base">
-            <label htmlFor="businessType">Business type</label>
-            <input
-              id="businessType"
-              name="businessType"
-              type="text"
-              placeholder="Footwear, fashion, skincare, home decor..."
-              defaultValue={profile.business_type || ""}
-              style={inputStyle}
-            />
-
-            <label htmlFor="brandTone">Brand tone</label>
-            <input
-              id="brandTone"
-              name="brandTone"
-              type="text"
-              placeholder="Premium, sporty, playful, technical..."
-              defaultValue={profile.brand_tone || ""}
-              style={inputStyle}
-            />
-
-            <label htmlFor="targetAudience">Target audience</label>
-            <input
-              id="targetAudience"
-              name="targetAudience"
-              type="text"
-              placeholder="Women, men, athletes, parents, professionals..."
-              defaultValue={profile.target_audience || ""}
-              style={inputStyle}
-            />
-
-            <label htmlFor="descriptionStyle">Description style</label>
-            <input
-              id="descriptionStyle"
-              name="descriptionStyle"
-              type="text"
-              placeholder="Benefits-first, premium short copy, detailed..."
-              defaultValue={profile.description_style || ""}
-              style={inputStyle}
-            />
-
-            <label htmlFor="brandGuidelines">Brand guidelines</label>
-            <textarea
-              id="brandGuidelines"
-              name="brandGuidelines"
-              rows="5"
-              placeholder="Example: Write in a polished premium tone. Focus on comfort, materials, and lifestyle. Avoid slang and exaggerated claims."
-              defaultValue={profile.brand_guidelines || ""}
-              style={inputStyle}
-            />
-
-            <label htmlFor="defaultLanguage">Default language</label>
-            <select
-              id="defaultLanguage"
-              name="defaultLanguage"
-              defaultValue={profile.default_language || "English"}
-              style={inputStyle}
+            <div style={profileSummaryCardStyle}>
+              <div style={profileSummaryGridStyle}>
+                <p style={profileSummaryTextStyle}>
+                  <strong>Business type:</strong> {profile.business_type || "Not set"}
+                </p>
+                <p style={profileSummaryTextStyle}>
+                  <strong>Brand tone:</strong> {profile.brand_tone || "Not set"}
+                </p>
+                <p style={profileSummaryTextStyle}>
+                  <strong>Target audience:</strong>{" "}
+                  {profile.target_audience || "Not set"}
+                </p>
+                <p style={profileSummaryTextStyle}>
+                  <strong>Description style:</strong>{" "}
+                  {profile.description_style || "Not set"}
+                </p>
+                <p style={profileSummaryTextStyle}>
+                  <strong>Default language:</strong>{" "}
+                  {profile.default_language || "English"}
+                </p>
+              </div>
+            </div>
+            <s-button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsBusinessProfileExpanded(true)}
             >
-              <option value="English">English</option>
-              <option value="Arabic">Arabic</option>
-              <option value="French">French</option>
-            </select>
-
-            <label htmlFor="preferredKeywords">Preferred keywords</label>
-            <input
-              id="preferredKeywords"
-              name="preferredKeywords"
-              type="text"
-              placeholder="premium sneakers, breathable mesh, comfort..."
-              defaultValue={profile.preferred_keywords || ""}
-              style={inputStyle}
-            />
-
-            <label htmlFor="bannedWords">Words to avoid</label>
-            <input
-              id="bannedWords"
-              name="bannedWords"
-              type="text"
-              placeholder="cheap, best ever, revolutionary..."
-              defaultValue={profile.banned_words || ""}
-              style={inputStyle}
-            />
-
-            <label htmlFor="brandExampleCopy">Example brand copy</label>
-            <textarea
-              id="brandExampleCopy"
-              name="brandExampleCopy"
-              rows="5"
-              placeholder="Paste a short example of the tone and style you want future generations to imitate."
-              defaultValue={profile.brand_example_copy || ""}
-              style={inputStyle}
-            />
-
-            <s-button type="submit" variant="secondary">
-              Save business profile
+              Edit business profile
             </s-button>
           </s-stack>
-        </Form>
+        )}
 
         {actionData?.message && actionData.intent === "save-profile" && (
           <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
@@ -2208,6 +2257,25 @@ const metricCardStyle = {
 const metricLabelStyle = {
   margin: 0,
   color: "#4b5563",
+  lineHeight: 1.5,
+};
+
+const profileSummaryCardStyle = {
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+};
+
+const profileSummaryGridStyle = {
+  display: "grid",
+  gap: "8px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+};
+
+const profileSummaryTextStyle = {
+  margin: 0,
+  color: "#111827",
   lineHeight: 1.5,
 };
 
