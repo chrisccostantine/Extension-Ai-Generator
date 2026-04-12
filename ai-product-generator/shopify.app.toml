@@ -25,7 +25,7 @@ api_version = "2026-07"
 scopes = "read_products,write_products,write_metaobjects,write_metaobject_definitions"
 
 [auth]
-redirect_urls = [ "https://extension-ai-generator-production.up.railway.app/api/auth" ]
+redirect_urls = [ "https://extension-ai-generator-production.up.railway.app/auth/callback" ]
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
