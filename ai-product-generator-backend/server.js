@@ -1990,24 +1990,24 @@ async function seedPlans() {
       ),
       (
         'starter',
-        '300 generations per month for steady single-product work. Best for small catalogs that do not need bulk generation or saved presets yet.',
-        300,
+        '100 generations per month for steady single-product work. Best for small catalogs that do not need bulk generation or saved presets yet.',
+        100,
         0,
         900,
         9000
       ),
       (
         'growth',
-        '1,000 generations per month, 20 image credits, bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
-        1000,
+        '300 generations per month, 20 image credits, bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
+        300,
         20,
         3000,
         30000
       ),
       (
         'scale',
-        '3,000 generations per month, 75 image credits, and full access to bulk workflows, saved presets, multilingual generation, image generation, and advanced catalog optimization.',
-        3000,
+        '800 generations per month, 75 image credits, and full access to bulk workflows, saved presets, multilingual generation, image generation, and advanced catalog optimization.',
+        800,
         75,
         7900,
         79000
@@ -2397,7 +2397,7 @@ function getPlanFeatureList(planName) {
 
   if (normalized === "starter") {
     return [
-      "300 generations per month",
+      "100 generations per month",
       "Single-product generation",
       "Catalog audit visibility",
       "Bulk generation locked",
@@ -2407,7 +2407,7 @@ function getPlanFeatureList(planName) {
 
   if (normalized === "growth") {
     return [
-      "1,000 generations per month",
+      "300 generations per month",
       "20 image generations per month",
       "Bulk generation and preview",
       "Saved presets",
@@ -2419,7 +2419,7 @@ function getPlanFeatureList(planName) {
 
   if (normalized === "scale") {
     return [
-      "3,000 generations per month",
+      "800 generations per month",
       "75 image generations per month",
       "Bulk generation and preview",
       "Saved presets",
