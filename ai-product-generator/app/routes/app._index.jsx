@@ -824,6 +824,9 @@ export default function AppIndex() {
   const [isBusinessProfileExpanded, setIsBusinessProfileExpanded] = useState(
     needsProfile,
   );
+  const [billingInterval, setBillingInterval] = useState("monthly");
+  const [isPricingRequestExpanded, setIsPricingRequestExpanded] = useState(false);
+  const [isPresetsExpanded, setIsPresetsExpanded] = useState(false);
 
   useEffect(() => {
     if (needsProfile) {
@@ -843,6 +846,16 @@ export default function AppIndex() {
     }
   }, [actionData]);
 
+  useEffect(() => {
+    if (actionData?.intent === "save-preset") {
+      setIsPresetsExpanded(!actionData?.ok);
+    }
+
+    if (actionData?.intent === "delete-preset" && !actionData?.ok) {
+      setIsPresetsExpanded(true);
+    }
+  }, [actionData]);
+
   const paidPlans = useMemo(
     () => (data.plans || []).filter((plan) => plan.isPaid),
     [data.plans],
@@ -859,8 +872,6 @@ export default function AppIndex() {
     paidPlans[0]?.name ||
     "";
   const auditItems = data.audit?.items || [];
-  const [billingInterval, setBillingInterval] = useState("monthly");
-  const [isPricingRequestExpanded, setIsPricingRequestExpanded] = useState(false);
   const imageCreditsRemaining = getRemainingImageCredits(data.shopStatus);
   const isCatalogAuditPage = location.pathname.endsWith("/catalog-audit");
   const isPricingPage = location.pathname.endsWith("/pricing");
@@ -1009,91 +1020,131 @@ export default function AppIndex() {
           </div>
         ) : (
           <>
-            <Form method="post" action=".">
-              <input type="hidden" name="intent" value="save-preset" />
-              <div style={presetFormGridStyle}>
-                <div>
-                  <label htmlFor="presetName">Preset name</label>
-                  <input
-                    id="presetName"
-                    name="presetName"
-                    type="text"
-                    placeholder="Luxury sneakers in Arabic"
+            {!isPresetsExpanded ? (
+              <s-stack direction="block" gap="base">
+                <div style={presetSummaryCardStyle}>
+                  <p style={presetSummaryTextStyle}>
+                    <strong>Saved presets:</strong> {presets.length}
+                  </p>
+                  <p style={presetSummaryTextStyle}>
+                    <strong>Languages:</strong>{" "}
+                    {presets.length
+                      ? Array.from(
+                          new Set(
+                            presets
+                              .map((preset) => String(preset.language || "").trim())
+                              .filter(Boolean),
+                          ),
+                        ).join(", ")
+                      : "No presets yet"}
+                  </p>
+                </div>
+                <s-button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setIsPresetsExpanded(true)}
+                >
+                  Manage presets
+                </s-button>
+              </s-stack>
+            ) : (
+              <>
+                <Form method="post" action=".">
+                  <input type="hidden" name="intent" value="save-preset" />
+                  <div style={presetFormGridStyle}>
+                    <div>
+                      <label htmlFor="presetName">Preset name</label>
+                      <input
+                        id="presetName"
+                        name="presetName"
+                        type="text"
+                        placeholder="Luxury sneakers in Arabic"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="presetMode">Mode</label>
+                      <select id="presetMode" name="presetMode" style={inputStyle} defaultValue="conversion">
+                        <option value="conversion">Conversion-focused</option>
+                        <option value="luxury">Luxury</option>
+                        <option value="seo">SEO-friendly</option>
+                        <option value="technical">Technical</option>
+                        <option value="benefits">Benefits-first</option>
+                        <option value="mobile">Mobile-friendly</option>
+                        <option value="rewrite">Rewrite current copy</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="presetLanguage">Language</label>
+                      <select
+                        id="presetLanguage"
+                        name="presetLanguage"
+                        style={inputStyle}
+                        defaultValue={profile.default_language || "English"}
+                      >
+                        <option value="English">English</option>
+                        <option value="Arabic">Arabic</option>
+                        <option value="French">French</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <label htmlFor="presetInstructions">Extra instructions</label>
+                  <textarea
+                    id="presetInstructions"
+                    name="presetInstructions"
+                    rows="4"
+                    placeholder="Example: Keep a refined premium tone, mention craftsmanship, and avoid playful language."
                     style={inputStyle}
                   />
-                </div>
-                <div>
-                  <label htmlFor="presetMode">Mode</label>
-                  <select id="presetMode" name="presetMode" style={inputStyle} defaultValue="conversion">
-                    <option value="conversion">Conversion-focused</option>
-                    <option value="luxury">Luxury</option>
-                    <option value="seo">SEO-friendly</option>
-                    <option value="technical">Technical</option>
-                    <option value="benefits">Benefits-first</option>
-                    <option value="mobile">Mobile-friendly</option>
-                    <option value="rewrite">Rewrite current copy</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="presetLanguage">Language</label>
-                  <select
-                    id="presetLanguage"
-                    name="presetLanguage"
-                    style={inputStyle}
-                    defaultValue={profile.default_language || "English"}
-                  >
-                    <option value="English">English</option>
-                    <option value="Arabic">Arabic</option>
-                    <option value="French">French</option>
-                  </select>
-                </div>
-              </div>
 
-              <label htmlFor="presetInstructions">Extra instructions</label>
-              <textarea
-                id="presetInstructions"
-                name="presetInstructions"
-                rows="4"
-                placeholder="Example: Keep a refined premium tone, mention craftsmanship, and avoid playful language."
-                style={inputStyle}
-              />
-
-              <s-button type="submit" variant="secondary">Save preset</s-button>
-            </Form>
-
-            {actionData?.message && actionData.intent === "save-preset" && (
-              <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
-            )}
-
-            {presets.length ? (
-              <div style={presetListStyle}>
-                {presets.map((preset) => (
-                  <div key={preset.id} style={presetCardStyle}>
-                    <div style={presetCardHeaderStyle}>
-                      <strong>{preset.name}</strong>
-                      <span style={presetTagStyle}>
-                        {capitalizePlanName(preset.mode)} | {preset.language}
-                      </span>
-                    </div>
-                    <p style={presetDescriptionTextStyle}>
-                      {preset.instructions || "No extra instructions for this preset."}
-                    </p>
-                    <Form method="post" action=".">
-                      <input type="hidden" name="intent" value="delete-preset" />
-                      <input type="hidden" name="presetId" value={preset.id} />
-                      <s-button type="submit" variant="secondary">Delete preset</s-button>
-                    </Form>
+                  <div style={bulkActionRowStyle}>
+                    <s-button type="submit" variant="secondary">Save preset</s-button>
+                    <s-button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setIsPresetsExpanded(false)}
+                    >
+                      Done
+                    </s-button>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div style={getNoticeStyle(false)}>
-                No presets saved yet. Create one to reuse your favorite generation setup.
-              </div>
-            )}
+                </Form>
 
-            {actionData?.message && actionData.intent === "delete-preset" && (
-              <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+                {actionData?.message && actionData.intent === "save-preset" && (
+                  <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+                )}
+
+                {presets.length ? (
+                  <div style={presetListStyle}>
+                    {presets.map((preset) => (
+                      <div key={preset.id} style={presetCardStyle}>
+                        <div style={presetCardHeaderStyle}>
+                          <strong>{preset.name}</strong>
+                          <span style={presetTagStyle}>
+                            {capitalizePlanName(preset.mode)} | {preset.language}
+                          </span>
+                        </div>
+                        <p style={presetDescriptionTextStyle}>
+                          {preset.instructions || "No extra instructions for this preset."}
+                        </p>
+                        <Form method="post" action=".">
+                          <input type="hidden" name="intent" value="delete-preset" />
+                          <input type="hidden" name="presetId" value={preset.id} />
+                          <s-button type="submit" variant="secondary">Delete preset</s-button>
+                        </Form>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={getNoticeStyle(false)}>
+                    No presets saved yet. Create one to reuse your favorite generation setup.
+                  </div>
+                )}
+
+                {actionData?.message && actionData.intent === "delete-preset" && (
+                  <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+                )}
+              </>
             )}
           </>
         )}
@@ -2145,6 +2196,21 @@ const presetTagStyle = {
 const presetDescriptionTextStyle = {
   margin: 0,
   color: "#4b5563",
+  lineHeight: 1.5,
+};
+
+const presetSummaryCardStyle = {
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+  display: "grid",
+  gap: "8px",
+};
+
+const presetSummaryTextStyle = {
+  margin: 0,
+  color: "#111827",
   lineHeight: 1.5,
 };
 
