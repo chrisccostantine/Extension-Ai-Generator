@@ -2,12 +2,11 @@
 
 client_id = "70386ff31b60cf083e54e9b2560603dc"
 name = "Scalora Product AI Suite"
-application_url = "https://extension-ai-generator-production.up.railway.app"
+application_url = "https://ingenious-caring-production-0818.up.railway.app"
 embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [webhooks]
 api_version = "2026-07"
@@ -25,7 +24,7 @@ api_version = "2026-07"
 scopes = "read_products,write_products,write_metaobjects,write_metaobject_definitions"
 
 [auth]
-redirect_urls = [ "https://extension-ai-generator-production.up.railway.app/auth/callback" ]
+redirect_urls = [ "https://ingenious-caring-production-0818.up.railway.app/auth/callback" ]
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
