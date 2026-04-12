@@ -59,7 +59,7 @@ export const loader = async ({ request }) => {
   }
 
   try {
-    const [shopStatusResult, plansResult] = await Promise.allSettled([
+    const [shopStatusResult, plansResult, jobsResult] = await Promise.allSettled([
       backendRequest({
         backend,
         pathname: "/shop-status",
@@ -71,11 +71,19 @@ export const loader = async ({ request }) => {
         pathname: "/plans",
         method: "GET",
       }),
+      backendRequest({
+        backend,
+        pathname: "/catalog-jobs",
+        method: "GET",
+        clientId,
+      }),
     ]);
     const shopStatus =
       shopStatusResult.status === "fulfilled" ? shopStatusResult.value : null;
     const plansPayload =
       plansResult.status === "fulfilled" ? plansResult.value : { plans: [] };
+    const jobsPayload =
+      jobsResult.status === "fulfilled" ? jobsResult.value : { jobs: [] };
     const presetsResult = shopStatus?.plan?.features?.presetsEnabled
       ? await Promise.race([
           backendRequest({
@@ -106,7 +114,7 @@ export const loader = async ({ request }) => {
       auditLoaded: shouldLoadAudit,
       auditFilters,
       presets: presetsResult.status === "fulfilled" ? presetsResult.value.presets || [] : [],
-      jobs: [],
+      jobs: jobsPayload.jobs || [],
       imageJobs: [],
     };
   } catch (error) {
