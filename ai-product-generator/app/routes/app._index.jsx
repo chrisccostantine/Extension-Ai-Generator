@@ -837,6 +837,12 @@ export default function AppIndex() {
     }
   }, [actionData]);
 
+  useEffect(() => {
+    if (actionData?.intent === "request-plan") {
+      setIsPricingRequestExpanded(!actionData?.ok);
+    }
+  }, [actionData]);
+
   const paidPlans = useMemo(
     () => (data.plans || []).filter((plan) => plan.isPaid),
     [data.plans],
@@ -854,6 +860,7 @@ export default function AppIndex() {
     "";
   const auditItems = data.audit?.items || [];
   const [billingInterval, setBillingInterval] = useState("monthly");
+  const [isPricingRequestExpanded, setIsPricingRequestExpanded] = useState(false);
   const imageCreditsRemaining = getRemainingImageCredits(data.shopStatus);
   const isCatalogAuditPage = location.pathname.endsWith("/catalog-audit");
   const isPricingPage = location.pathname.endsWith("/pricing");
@@ -1507,217 +1514,256 @@ export default function AppIndex() {
 
       {isPricingPage && (
       <s-section heading="Request a paid plan">
-        <Form method="post" action="." encType="multipart/form-data">
-          <input type="hidden" name="intent" value="request-plan" />
-          <input type="hidden" name="billingInterval" value={billingInterval} />
+        {!isPricingRequestExpanded ? (
           <s-stack direction="block" gap="base">
-            <s-paragraph>
-              Choose the plan that matches how often you create product copy and visuals. Higher plans unlock bulk workflows, saved presets, multilingual output, and monthly image credits.
-            </s-paragraph>
-            <div style={billingToggleStyle}>
-              <strong>Billing cycle</strong>
-              <div style={billingToggleOptionsStyle}>
-                <label style={billingOptionStyle}>
-                  <input
-                    type="radio"
-                    name="billingIntervalOption"
-                    value="monthly"
-                    checked={billingInterval === "monthly"}
-                    onChange={() => setBillingInterval("monthly")}
-                  />
-                  <span>Monthly</span>
-                </label>
-                <label style={billingOptionStyle}>
-                  <input
-                    type="radio"
-                    name="billingIntervalOption"
-                    value="yearly"
-                    checked={billingInterval === "yearly"}
-                    onChange={() => setBillingInterval("yearly")}
-                  />
-                  <span>Yearly</span>
-                </label>
-              </div>
-              <p style={billingHintStyle}>
-                Yearly billing keeps the same monthly limits, lowers the effective monthly cost, and reduces renewal follow-up.
+            <div style={pricingSummaryCardStyle}>
+              <p style={pricingSummaryTextStyle}>
+                <strong>Current plan:</strong>{" "}
+                {data.shopStatus?.plan?.name
+                  ? capitalizePlanName(data.shopStatus.plan.name)
+                  : "Unavailable"}
               </p>
+              <p style={pricingSummaryTextStyle}>
+                <strong>Billing cycle:</strong>{" "}
+                {capitalizePlanName(currentBillingInterval)}
+              </p>
+              {data.shopStatus?.latestRequest?.status ? (
+                <p style={pricingSummaryTextStyle}>
+                  <strong>Latest upgrade request:</strong>{" "}
+                  {capitalizePlanName(data.shopStatus.latestRequest.status)}
+                </p>
+              ) : null}
             </div>
-            <p style={sectionLabelStyle}>Choose plan</p>
-            {paidPlans.length ? (
-              <div style={planGridStyle}>
-                {paidPlans.map((plan) => {
-                  const isCurrentPlan =
-                    plan.name === currentPlanName &&
-                    billingInterval === currentBillingInterval;
-                  const activePriceCents =
-                    billingInterval === "yearly"
-                      ? Number(plan.yearly_price_cents || 0)
-                      : Number(plan.price_cents || 0);
-                  const equivalentMonthlyPrice =
-                    billingInterval === "yearly"
-                      ? Math.round(activePriceCents / 12)
-                      : Number(plan.price_cents || 0);
-                  const yearlySavings =
-                    billingInterval === "yearly"
-                      ? Number(plan.price_cents || 0) * 12 - activePriceCents
-                      : 0;
-                  return (
-                    <label key={plan.id} style={planCardStyle}>
-                      <input
-                        type="radio"
-                        name="requestedPlanName"
-                        value={plan.name}
-                        defaultChecked={plan.name === defaultRequestedPlanName}
-                      />
-                      <div style={planCardContentStyle}>
-                        <div style={planBadgeRowStyle}>
-                          {getPlanAudienceLabel(plan.name) ? (
-                            <span style={planAudienceBadgeStyle}>
-                              {getPlanAudienceLabel(plan.name)}
-                            </span>
-                          ) : null}
-                          {plan.name === "growth" ? (
-                            <span style={planBestValueBadgeStyle}>Best value</span>
-                          ) : null}
-                        </div>
-                        <div style={planCardHeaderStyle}>
-                          <strong style={planNameStyle}>{capitalizePlanName(plan.name)}</strong>
-                          <strong>
-                            ${formatCurrency(activePriceCents)} / {billingInterval === "yearly" ? "year" : "month"}
-                          </strong>
-                        </div>
-                        <p style={planDescriptionStyle}>
-                          {plan.description ||
-                            "Monthly access to AI product generation for your store."}
-                        </p>
-                        {billingInterval === "yearly" && (
-                          <p style={planMetaStyle}>
-                            Equivalent to about ${formatCurrency(equivalentMonthlyPrice)} / month
-                          </p>
-                        )}
-                        {billingInterval === "yearly" && yearlySavings > 0 && (
-                          <p style={planSavingsStyle}>
-                            You save ${formatCurrency(yearlySavings)} per year compared with monthly billing.
-                          </p>
-                        )}
-                        <p style={planFitTextStyle}>{getPlanFitSummary(plan.name)}</p>
-                        {plan.features_list?.length ? (
-                          <ul style={planFeatureListStyle}>
-                            {plan.features_list.map((feature) => (
-                              <li key={`${plan.name}-${feature}`}>{feature}</li>
-                            ))}
-                          </ul>
-                        ) : null}
-                        <p style={planMetaStyle}>
-                          {formatNumber(plan.monthly_generation_limit)} generations per month
-                        </p>
-                        {Number(plan.monthly_image_limit || 0) > 0 && (
-                          <p style={planMetaStyle}>
-                            {formatNumber(plan.monthly_image_limit)} image credits per month
-                          </p>
-                        )}
-                        {isCurrentPlan && (
-                          <p style={planCurrentBadgeStyle}>Current plan</p>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={getNoticeStyle(false)}>No paid plans available right now.</div>
-            )}
-
-            <div style={paymentNoticeStyle}>
-              <strong>Payment destination</strong>
-              <p style={paymentNoticeTextStyle}>
-                {PAYMENT_INSTRUCTIONS_TEXT}
-              </p>
-              <p style={paymentNoticeTextStyle}>
-                <strong>Confirmation contact:</strong> {SUPPORT_CONTACT_TEXT}
-              </p>
-            </div>
-
-            <label htmlFor="contactName">Your name *</label>
-            <input
-              id="contactName"
-              name="contactName"
-              type="text"
-              placeholder="Required full name"
-              style={inputStyle}
-              required
-            />
-
-            <label htmlFor="phoneNumber">Phone number *</label>
-            <input
-              id="phoneNumber"
-              name="phoneNumber"
-              type="text"
-              placeholder="Required phone number"
-              style={inputStyle}
-              required
-            />
-
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              placeholder="Optional email address"
-              style={inputStyle}
-            />
-
-            <label htmlFor="paymentMethod">Payment method *</label>
-            <select
-              id="paymentMethod"
-              name="paymentMethod"
-              style={inputStyle}
-              defaultValue=""
-              required
+            <s-button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsPricingRequestExpanded(true)}
             >
-              <option value="" disabled>
-                Select a payment method
-              </option>
-              {PAYMENT_METHOD_OPTIONS.map((method) => (
-                <option key={method} value={method}>
-                  {method}
-                </option>
-              ))}
-            </select>
-
-            <label htmlFor="paymentReference">Payment reference</label>
-            <input
-              id="paymentReference"
-              name="paymentReference"
-              type="text"
-              placeholder="Transaction id or note"
-              style={inputStyle}
-            />
-
-            <label htmlFor="notes">Notes</label>
-            <textarea
-              id="notes"
-              name="notes"
-              rows="4"
-              placeholder="Any extra context for the request"
-              style={inputStyle}
-            />
-
-            <label htmlFor="proofFile">Transaction screenshot *</label>
-            <input
-              id="proofFile"
-              name="proofFile"
-              type="file"
-              accept="image/*"
-              style={inputStyle}
-              required
-            />
-
-            <s-button type="submit" variant="secondary">
-              Submit upgrade request
+              Change plan
             </s-button>
           </s-stack>
-        </Form>
+        ) : (
+          <Form method="post" action="." encType="multipart/form-data">
+            <input type="hidden" name="intent" value="request-plan" />
+            <input type="hidden" name="billingInterval" value={billingInterval} />
+            <s-stack direction="block" gap="base">
+              <s-paragraph>
+                Choose the plan that matches how often you create product copy and visuals. Higher plans unlock bulk workflows, saved presets, multilingual output, and monthly image credits.
+              </s-paragraph>
+              <div style={billingToggleStyle}>
+                <strong>Billing cycle</strong>
+                <div style={billingToggleOptionsStyle}>
+                  <label style={billingOptionStyle}>
+                    <input
+                      type="radio"
+                      name="billingIntervalOption"
+                      value="monthly"
+                      checked={billingInterval === "monthly"}
+                      onChange={() => setBillingInterval("monthly")}
+                    />
+                    <span>Monthly</span>
+                  </label>
+                  <label style={billingOptionStyle}>
+                    <input
+                      type="radio"
+                      name="billingIntervalOption"
+                      value="yearly"
+                      checked={billingInterval === "yearly"}
+                      onChange={() => setBillingInterval("yearly")}
+                    />
+                    <span>Yearly</span>
+                  </label>
+                </div>
+                <p style={billingHintStyle}>
+                  Yearly billing keeps the same monthly limits, lowers the effective monthly cost, and reduces renewal follow-up.
+                </p>
+              </div>
+              <p style={sectionLabelStyle}>Choose plan</p>
+              {paidPlans.length ? (
+                <div style={planGridStyle}>
+                  {paidPlans.map((plan) => {
+                    const isCurrentPlan =
+                      plan.name === currentPlanName &&
+                      billingInterval === currentBillingInterval;
+                    const activePriceCents =
+                      billingInterval === "yearly"
+                        ? Number(plan.yearly_price_cents || 0)
+                        : Number(plan.price_cents || 0);
+                    const equivalentMonthlyPrice =
+                      billingInterval === "yearly"
+                        ? Math.round(activePriceCents / 12)
+                        : Number(plan.price_cents || 0);
+                    const yearlySavings =
+                      billingInterval === "yearly"
+                        ? Number(plan.price_cents || 0) * 12 - activePriceCents
+                        : 0;
+                    return (
+                      <label key={plan.id} style={planCardStyle}>
+                        <input
+                          type="radio"
+                          name="requestedPlanName"
+                          value={plan.name}
+                          defaultChecked={plan.name === defaultRequestedPlanName}
+                        />
+                        <div style={planCardContentStyle}>
+                          <div style={planBadgeRowStyle}>
+                            {getPlanAudienceLabel(plan.name) ? (
+                              <span style={planAudienceBadgeStyle}>
+                                {getPlanAudienceLabel(plan.name)}
+                              </span>
+                            ) : null}
+                            {plan.name === "growth" ? (
+                              <span style={planBestValueBadgeStyle}>Best value</span>
+                            ) : null}
+                          </div>
+                          <div style={planCardHeaderStyle}>
+                            <strong style={planNameStyle}>{capitalizePlanName(plan.name)}</strong>
+                            <strong>
+                              ${formatCurrency(activePriceCents)} / {billingInterval === "yearly" ? "year" : "month"}
+                            </strong>
+                          </div>
+                          <p style={planDescriptionStyle}>
+                            {plan.description ||
+                              "Monthly access to AI product generation for your store."}
+                          </p>
+                          {billingInterval === "yearly" && (
+                            <p style={planMetaStyle}>
+                              Equivalent to about ${formatCurrency(equivalentMonthlyPrice)} / month
+                            </p>
+                          )}
+                          {billingInterval === "yearly" && yearlySavings > 0 && (
+                            <p style={planSavingsStyle}>
+                              You save ${formatCurrency(yearlySavings)} per year compared with monthly billing.
+                            </p>
+                          )}
+                          <p style={planFitTextStyle}>{getPlanFitSummary(plan.name)}</p>
+                          {plan.features_list?.length ? (
+                            <ul style={planFeatureListStyle}>
+                              {plan.features_list.map((feature) => (
+                                <li key={`${plan.name}-${feature}`}>{feature}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          <p style={planMetaStyle}>
+                            {formatNumber(plan.monthly_generation_limit)} generations per month
+                          </p>
+                          {Number(plan.monthly_image_limit || 0) > 0 && (
+                            <p style={planMetaStyle}>
+                              {formatNumber(plan.monthly_image_limit)} image credits per month
+                            </p>
+                          )}
+                          {isCurrentPlan && (
+                            <p style={planCurrentBadgeStyle}>Current plan</p>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={getNoticeStyle(false)}>No paid plans available right now.</div>
+              )}
+
+              <div style={paymentNoticeStyle}>
+                <strong>Payment destination</strong>
+                <p style={paymentNoticeTextStyle}>
+                  {PAYMENT_INSTRUCTIONS_TEXT}
+                </p>
+                <p style={paymentNoticeTextStyle}>
+                  <strong>Confirmation contact:</strong> {SUPPORT_CONTACT_TEXT}
+                </p>
+              </div>
+
+              <label htmlFor="contactName">Your name *</label>
+              <input
+                id="contactName"
+                name="contactName"
+                type="text"
+                placeholder="Required full name"
+                style={inputStyle}
+                required
+              />
+
+              <label htmlFor="phoneNumber">Phone number *</label>
+              <input
+                id="phoneNumber"
+                name="phoneNumber"
+                type="text"
+                placeholder="Required phone number"
+                style={inputStyle}
+                required
+              />
+
+              <label htmlFor="email">Email</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                placeholder="Optional email address"
+                style={inputStyle}
+              />
+
+              <label htmlFor="paymentMethod">Payment method *</label>
+              <select
+                id="paymentMethod"
+                name="paymentMethod"
+                style={inputStyle}
+                defaultValue=""
+                required
+              >
+                <option value="" disabled>
+                  Select a payment method
+                </option>
+                {PAYMENT_METHOD_OPTIONS.map((method) => (
+                  <option key={method} value={method}>
+                    {method}
+                  </option>
+                ))}
+              </select>
+
+              <label htmlFor="paymentReference">Payment reference</label>
+              <input
+                id="paymentReference"
+                name="paymentReference"
+                type="text"
+                placeholder="Transaction id or note"
+                style={inputStyle}
+              />
+
+              <label htmlFor="notes">Notes</label>
+              <textarea
+                id="notes"
+                name="notes"
+                rows="4"
+                placeholder="Any extra context for the request"
+                style={inputStyle}
+              />
+
+              <label htmlFor="proofFile">Transaction screenshot *</label>
+              <input
+                id="proofFile"
+                name="proofFile"
+                type="file"
+                accept="image/*"
+                style={inputStyle}
+                required
+              />
+
+              <div style={bulkActionRowStyle}>
+                <s-button type="submit" variant="secondary">
+                  Submit upgrade request
+                </s-button>
+                <s-button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setIsPricingRequestExpanded(false)}
+                >
+                  Cancel
+                </s-button>
+              </div>
+            </s-stack>
+          </Form>
+        )}
 
         {actionData?.message && actionData.intent === "request-plan" && (
           <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
@@ -2274,6 +2320,21 @@ const profileSummaryGridStyle = {
 };
 
 const profileSummaryTextStyle = {
+  margin: 0,
+  color: "#111827",
+  lineHeight: 1.5,
+};
+
+const pricingSummaryCardStyle = {
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #d9dce1",
+  background: "#ffffff",
+  display: "grid",
+  gap: "8px",
+};
+
+const pricingSummaryTextStyle = {
   margin: 0,
   color: "#111827",
   lineHeight: 1.5,
