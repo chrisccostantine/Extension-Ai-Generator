@@ -892,13 +892,6 @@ export default function AppIndex() {
       : isSupportPage
         ? "Support"
       : "Scalora Product AI Suite";
-  const onboardingChecklist = buildOnboardingChecklist({
-    profile,
-    presets,
-    audit: data.audit,
-    jobs,
-    usageCount: data.shopStatus?.usage?.count || 0,
-  });
   const roiMetrics = buildRoiMetrics({
     usageCount: data.shopStatus?.usage?.count || 0,
     audit: data.audit,
@@ -976,19 +969,6 @@ export default function AppIndex() {
             </s-paragraph>
           )}
         </s-stack>
-      </s-section>
-      )}
-
-      {isHomePage && (
-      <s-section heading="Onboarding checklist">
-        <div style={metricGridStyle}>
-          {onboardingChecklist.map((item) => (
-            <div key={item.label} style={metricCardStyle}>
-              <strong>{item.done ? "Done" : "Pending"}</strong>
-              <p style={metricLabelStyle}>{item.label}</p>
-            </div>
-          ))}
-        </div>
       </s-section>
       )}
 
@@ -2499,41 +2479,6 @@ function summarizeSelectedScope(items) {
   }
 
   return `${items.length} selected products`;
-}
-
-function buildOnboardingChecklist({ profile, presets, audit, jobs, usageCount }) {
-  return [
-    {
-      label: "Set up your core business profile",
-      done:
-        Boolean(profile.business_type) &&
-        Boolean(profile.brand_tone) &&
-        Boolean(profile.target_audience) &&
-        Boolean(profile.description_style),
-    },
-    {
-      label: "Add brand rules and example copy",
-      done:
-        Boolean(profile.brand_guidelines) &&
-        (Boolean(profile.preferred_keywords) || Boolean(profile.brand_example_copy)),
-    },
-    {
-      label: "Save at least one reusable preset",
-      done: (presets || []).length > 0,
-    },
-    {
-      label: "Run your first catalog improvement batch",
-      done: (jobs || []).length > 0,
-    },
-    {
-      label: "Improve at least one flagged product",
-      done: Number(audit?.flaggedCount || 0) < Number(audit?.totalCount || 0),
-    },
-    {
-      label: "Generate content at least once",
-      done: Number(usageCount || 0) > 0,
-    },
-  ];
 }
 
 function buildRoiMetrics({ usageCount, audit, jobs }) {
