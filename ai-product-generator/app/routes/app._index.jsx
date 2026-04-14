@@ -847,6 +847,10 @@ export const action = async ({ request }) => {
       message: "Unknown app action.",
     };
   } catch (error) {
+    if (error instanceof Response) {
+      throw error;
+    }
+
     return {
       ok: false,
       intent,
