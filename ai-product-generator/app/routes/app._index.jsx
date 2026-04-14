@@ -657,6 +657,10 @@ export const action = async ({ request }) => {
           returnUrl: returnUrl.toString(),
         });
       } catch (error) {
+        if (error instanceof Response) {
+          throw error;
+        }
+
         console.error("Billing request failed:", error);
         return {
           ok: false,
