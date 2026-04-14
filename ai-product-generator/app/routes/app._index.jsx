@@ -9,7 +9,6 @@ import {
   useLocation,
   useNavigation,
   useRevalidator,
-  json,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
@@ -671,16 +670,27 @@ export const action = async ({ request }) => {
           host: resolveEmbeddedHost(request, session.shop),
           requestUrl: request.url,
         });
-        return json(
-          {
-            ok: true,
-            intent,
-            confirmationUrl,
-          },
-          {
-            headers: billingStateCookie ? { "Set-Cookie": billingStateCookie } : undefined,
-          },
-        );
+        if (billingStateCookie) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              intent,
+              confirmationUrl,
+            }),
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "Set-Cookie": billingStateCookie,
+              },
+            },
+          );
+        }
+
+        return {
+          ok: true,
+          intent,
+          confirmationUrl,
+        };
       } catch (error) {
         console.error("Billing request failed:", error);
         return {
