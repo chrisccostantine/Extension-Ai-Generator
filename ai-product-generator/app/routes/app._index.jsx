@@ -9,6 +9,7 @@ import {
   useLocation,
   useNavigation,
   useRevalidator,
+  json,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
@@ -665,11 +666,21 @@ export const action = async ({ request }) => {
           isTest: BILLING_TEST_MODE,
         });
         console.log("Billing returnUrl:", returnUrl.toString());
-        return {
-          ok: true,
-          intent,
-          confirmationUrl,
-        };
+        const billingStateCookie = buildBillingStateCookie({
+          shop: session.shop,
+          host: resolveEmbeddedHost(request, session.shop),
+          requestUrl: request.url,
+        });
+        return json(
+          {
+            ok: true,
+            intent,
+            confirmationUrl,
+          },
+          {
+            headers: billingStateCookie ? { "Set-Cookie": billingStateCookie } : undefined,
+          },
+        );
       } catch (error) {
         console.error("Billing request failed:", error);
         return {
@@ -1876,13 +1887,9 @@ function buildBillingReturnUrl(request, shopDomain) {
   if (normalizedShop) {
     url.searchParams.set("shop", normalizedShop);
   }
-  const currentUrl = new URL(request.url);
-  const hostParam = currentUrl.searchParams.get("host");
-  const computedHost = buildEmbeddedHost(normalizedShop);
-  if (hostParam) {
-    url.searchParams.set("host", hostParam);
-  } else if (computedHost) {
-    url.searchParams.set("host", computedHost);
+  const resolvedHost = resolveEmbeddedHost(request, normalizedShop);
+  if (resolvedHost) {
+    url.searchParams.set("host", resolvedHost);
   }
   url.searchParams.set("embedded", "1");
   return url;
@@ -1899,6 +1906,41 @@ function buildEmbeddedHost(shopDomain) {
   }
 
   return Buffer.from(`https://admin.shopify.com/store/${handle}`).toString("base64");
+}
+
+function resolveEmbeddedHost(request, shopDomain) {
+  const currentUrl = new URL(request.url);
+  const hostParam = currentUrl.searchParams.get("host");
+  if (hostParam) {
+    return hostParam;
+  }
+  return buildEmbeddedHost(shopDomain);
+}
+
+function buildBillingStateCookie({ shop, host, requestUrl }) {
+  if (!shop) {
+    return "";
+  }
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      shop,
+      host: host || "",
+    }),
+  ).toString("base64");
+
+  const isSecure = String(requestUrl || "").startsWith("https://");
+  const parts = [
+    `billing_state=${payload}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+  ];
+  if (isSecure) {
+    parts.push("Secure");
+  }
+
+  return parts.join("; ");
 }
 
 async function requestBillingViaGraphql(admin, { planKey, returnUrl, isTest }) {
