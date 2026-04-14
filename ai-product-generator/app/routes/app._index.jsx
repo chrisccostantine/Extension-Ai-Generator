@@ -1878,9 +1878,13 @@ function buildBillingReturnUrl(request, shopDomain) {
   }
   const currentUrl = new URL(request.url);
   const hostParam = currentUrl.searchParams.get("host");
+  const computedHost = buildEmbeddedHost(normalizedShop);
   if (hostParam) {
     url.searchParams.set("host", hostParam);
+  } else if (computedHost) {
+    url.searchParams.set("host", computedHost);
   }
+  url.searchParams.set("embedded", "1");
   return url;
 }
 
