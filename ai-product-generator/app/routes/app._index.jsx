@@ -658,7 +658,22 @@ export const action = async ({ request }) => {
         });
       } catch (error) {
         if (error instanceof Response) {
-          throw error;
+          const responseHeaders = new Headers(error.headers);
+          const billingStateCookie = buildBillingStateCookie({
+            shop: session.shop,
+            host: resolveEmbeddedHost(request, session.shop),
+            requestUrl: request.url,
+          });
+
+          if (billingStateCookie) {
+            responseHeaders.append("Set-Cookie", billingStateCookie);
+          }
+
+          throw new Response(null, {
+            status: error.status,
+            statusText: error.statusText,
+            headers: responseHeaders,
+          });
         }
 
         console.error("Billing request failed:", error);
@@ -1920,6 +1935,34 @@ function buildEmbeddedHost(shopDomain) {
   }
 
   return Buffer.from(`https://admin.shopify.com/store/${handle}`).toString("base64");
+}
+
+function buildBillingStateCookie({ shop, host, requestUrl }) {
+  if (!shop) {
+    return "";
+  }
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      shop,
+      host: host || "",
+    }),
+  ).toString("base64");
+
+  const isSecure = String(requestUrl || "").startsWith("https://");
+  const parts = [
+    `billing_state=${payload}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=900",
+  ];
+
+  if (isSecure) {
+    parts.push("Secure");
+  }
+
+  return parts.join("; ");
 }
 
 function resolveEmbeddedHost(request, shopDomain) {
