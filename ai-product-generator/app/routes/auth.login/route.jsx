@@ -1,6 +1,6 @@
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
-import { useState } from "react";
-import { Form, useActionData, useLoaderData } from "react-router";
+import { useEffect, useState } from "react";
+import { Form, useActionData, useLoaderData, useLocation, useSubmit } from "react-router";
 import { login } from "../../shopify.server";
 import { loginErrorMessage } from "./error.server";
 
@@ -21,8 +21,22 @@ export const action = async ({ request }) => {
 export default function Auth() {
   const loaderData = useLoaderData();
   const actionData = useActionData();
+  const location = useLocation();
+  const submit = useSubmit();
   const [shop, setShop] = useState("");
   const { errors } = actionData || loaderData;
+  const queryParams = new URLSearchParams(location.search);
+  const shopParam = queryParams.get("shop") || "";
+
+  useEffect(() => {
+    if (!shop && shopParam) {
+      setShop(shopParam);
+      submit(
+        { shop: shopParam },
+        { method: "post", action: location.pathname + location.search },
+      );
+    }
+  }, [shop, shopParam, submit, location.pathname, location.search]);
 
   return (
     <AppProvider embedded={false}>

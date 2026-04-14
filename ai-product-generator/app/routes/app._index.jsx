@@ -1871,7 +1871,7 @@ function buildBillingReturnUrl(request, shopDomain) {
   const appBase = String(process.env.SHOPIFY_APP_URL || "").trim();
   const fallbackBase = new URL(request.url).origin;
   const base = appBase || fallbackBase;
-  const url = new URL("/app/pricing", base);
+  const url = new URL("/auth", base);
   const normalizedShop = String(shopDomain || "").trim();
   if (normalizedShop) {
     url.searchParams.set("shop", normalizedShop);
@@ -1885,7 +1885,6 @@ function buildBillingReturnUrl(request, shopDomain) {
     url.searchParams.set("host", computedHost);
   }
   url.searchParams.set("embedded", "1");
-  url.searchParams.set("billing", "confirmed");
   return url;
 }
 
