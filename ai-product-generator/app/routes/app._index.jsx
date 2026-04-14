@@ -664,6 +664,7 @@ export const action = async ({ request }) => {
           returnUrl: returnUrl.toString(),
           isTest: BILLING_TEST_MODE,
         });
+        console.log("Billing returnUrl:", returnUrl.toString());
         return {
           ok: true,
           intent,
@@ -1870,18 +1871,11 @@ function buildBillingReturnUrl(request, shopDomain) {
   const appBase = String(process.env.SHOPIFY_APP_URL || "").trim();
   const fallbackBase = new URL(request.url).origin;
   const base = appBase || fallbackBase;
-  const url = new URL("/app/pricing", base);
+  const url = new URL("/auth", base);
   const normalizedShop = String(shopDomain || "").trim();
-  url.searchParams.set("shop", normalizedShop);
-  const currentUrl = new URL(request.url);
-  const hostParam = currentUrl.searchParams.get("host");
-  const computedHost = buildEmbeddedHost(normalizedShop);
-  if (hostParam) {
-    url.searchParams.set("host", hostParam);
-  } else if (computedHost) {
-    url.searchParams.set("host", computedHost);
+  if (normalizedShop) {
+    url.searchParams.set("shop", normalizedShop);
   }
-  url.searchParams.set("billing", "confirmed");
   return url;
 }
 
