@@ -1870,15 +1870,32 @@ function buildBillingReturnUrl(request, shopDomain) {
   const appBase = String(process.env.SHOPIFY_APP_URL || "").trim();
   const fallbackBase = new URL(request.url).origin;
   const base = appBase || fallbackBase;
-  const url = new URL("/app", base);
-  url.searchParams.set("shop", shopDomain || "");
+  const url = new URL("/app/pricing", base);
+  const normalizedShop = String(shopDomain || "").trim();
+  url.searchParams.set("shop", normalizedShop);
   const currentUrl = new URL(request.url);
   const hostParam = currentUrl.searchParams.get("host");
+  const computedHost = buildEmbeddedHost(normalizedShop);
   if (hostParam) {
     url.searchParams.set("host", hostParam);
+  } else if (computedHost) {
+    url.searchParams.set("host", computedHost);
   }
   url.searchParams.set("billing", "confirmed");
   return url;
+}
+
+function buildEmbeddedHost(shopDomain) {
+  const handle = String(shopDomain || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.myshopify\.com$/, "");
+
+  if (!handle) {
+    return "";
+  }
+
+  return Buffer.from(`https://admin.shopify.com/store/${handle}`).toString("base64");
 }
 
 async function requestBillingViaGraphql(admin, { planKey, returnUrl, isTest }) {
