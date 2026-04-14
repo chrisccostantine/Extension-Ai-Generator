@@ -17,7 +17,7 @@ export const loader = async ({ request }) => {
   const hasShopParam = url.searchParams.get("shop");
 
   if (!hasShopParam && cookieState?.shop) {
-    const redirectUrl = new URL("/auth", url.origin);
+    const redirectUrl = new URL("/app", url.origin);
     redirectUrl.searchParams.set("shop", cookieState.shop);
     if (cookieState.host) {
       redirectUrl.searchParams.set("host", cookieState.host);
