@@ -649,12 +649,16 @@ export const action = async ({ request }) => {
       const returnUrl = buildBillingReturnUrl(request, session.shop);
 
       try {
-        await billing.request({
+        return await billing.request({
           plan: planKey,
           returnUrl: returnUrl.toString(),
           isTest: BILLING_TEST_MODE,
         });
       } catch (error) {
+        if (error && typeof error === "object" && "status" in error && "headers" in error) {
+          return error;
+        }
+        console.error("Billing request failed:", error);
         return {
           ok: false,
           intent,
