@@ -646,14 +646,21 @@ export const action = async ({ request }) => {
         };
       }
 
-      const returnUrl = new URL(request.url);
-      returnUrl.searchParams.set("billing", "confirmed");
+      const returnUrl = buildBillingReturnUrl(request, session.shop);
 
-      await billing.request({
-        plan: planKey,
-        returnUrl: returnUrl.toString(),
-        isTest: BILLING_TEST_MODE,
-      });
+      try {
+        await billing.request({
+          plan: planKey,
+          returnUrl: returnUrl.toString(),
+          isTest: BILLING_TEST_MODE,
+        });
+      } catch (error) {
+        return {
+          ok: false,
+          intent,
+          message: error?.message || "Error while billing the store.",
+        };
+      }
     }
 
     if (intent === "generate-image-assets") {
@@ -1813,6 +1820,21 @@ function toClientId(shopDomain) {
     .replace(/\.myshopify\.com$/, "");
 
   return `shopify-store:${handle}`;
+}
+
+function buildBillingReturnUrl(request, shopDomain) {
+  const appBase = String(process.env.SHOPIFY_APP_URL || "").trim();
+  const fallbackBase = new URL(request.url).origin;
+  const base = appBase || fallbackBase;
+  const url = new URL("/app", base);
+  url.searchParams.set("shop", shopDomain || "");
+  const currentUrl = new URL(request.url);
+  const hostParam = currentUrl.searchParams.get("host");
+  if (hostParam) {
+    url.searchParams.set("host", hostParam);
+  }
+  url.searchParams.set("billing", "confirmed");
+  return url;
 }
 
 function getBillingPlanKey(planName, billingInterval) {
