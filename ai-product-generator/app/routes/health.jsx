@@ -1,7 +1,5 @@
-import { json } from "react-router";
-
 export const loader = async () => {
-  return json({
+  return Response.json({
     ok: true,
     app: "ai-product-generator",
     timestamp: new Date().toISOString(),
