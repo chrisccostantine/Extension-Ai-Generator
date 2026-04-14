@@ -7,7 +7,6 @@ import {
   useLocation,
   useNavigation,
   useRevalidator,
-  redirect,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
@@ -658,11 +657,16 @@ export const action = async ({ request }) => {
       const returnUrl = buildBillingReturnUrl(request, session.shop);
 
       try {
-        return await requestBillingViaGraphql(admin, {
+        const confirmationUrl = await requestBillingViaGraphql(admin, {
           planKey,
           returnUrl: returnUrl.toString(),
           isTest: BILLING_TEST_MODE,
         });
+        return {
+          ok: true,
+          intent,
+          confirmationUrl,
+        };
       } catch (error) {
         console.error("Billing request failed:", error);
         return {
@@ -899,6 +903,21 @@ export default function AppIndex() {
   useEffect(() => {
     if (actionData?.intent === "request-plan") {
       setIsPricingRequestExpanded(!actionData?.ok);
+    }
+  }, [actionData]);
+
+  useEffect(() => {
+    if (actionData?.intent === "request-plan" && actionData?.confirmationUrl) {
+      const target = actionData.confirmationUrl;
+      try {
+        if (window.top) {
+          window.top.location.assign(target);
+        } else {
+          window.location.assign(target);
+        }
+      } catch (_error) {
+        window.location.assign(target);
+      }
     }
   }, [actionData]);
 
@@ -1924,7 +1943,7 @@ async function requestBillingViaGraphql(admin, { planKey, returnUrl, isTest }) {
     throw new Error("Shopify did not return a confirmation URL.");
   }
 
-  return redirect(confirmationUrl);
+  return confirmationUrl;
 }
 
 function getBillingPlanKey(planName, billingInterval) {
