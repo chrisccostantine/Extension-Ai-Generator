@@ -49,14 +49,6 @@ const BILLING_PLAN_KEYS = {
 const ALL_BILLING_PLANS = Object.values(BILLING_PLAN_KEYS)
   .flatMap((entry) => Object.values(entry))
   .filter(Boolean);
-const BILLING_LINE_ITEMS = {
-  [STARTER_MONTHLY_PLAN]: { amount: 5, interval: "EVERY_30_DAYS" },
-  [STARTER_YEARLY_PLAN]: { amount: 50, interval: "ANNUAL" },
-  [GROWTH_MONTHLY_PLAN]: { amount: 22, interval: "EVERY_30_DAYS" },
-  [GROWTH_YEARLY_PLAN]: { amount: 220, interval: "ANNUAL" },
-  [SCALE_MONTHLY_PLAN]: { amount: 55, interval: "EVERY_30_DAYS" },
-  [SCALE_YEARLY_PLAN]: { amount: 550, interval: "ANNUAL" },
-};
 
 export const loader = async ({ request }) => {
   const { admin, session, billing } = await authenticate.admin(request);
@@ -659,38 +651,11 @@ export const action = async ({ request }) => {
       const returnUrl = buildBillingReturnUrl(request, session.shop);
 
       try {
-        const confirmationUrl = await requestBillingViaGraphql(admin, {
-          planKey,
-          returnUrl: returnUrl.toString(),
+        return await billing.request({
+          plan: planKey,
           isTest: BILLING_TEST_MODE,
+          returnUrl: returnUrl.toString(),
         });
-        console.log("Billing returnUrl:", returnUrl.toString());
-        const billingStateCookie = buildBillingStateCookie({
-          shop: session.shop,
-          host: resolveEmbeddedHost(request, session.shop),
-          requestUrl: request.url,
-        });
-        if (billingStateCookie) {
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              intent,
-              confirmationUrl,
-            }),
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Set-Cookie": billingStateCookie,
-              },
-            },
-          );
-        }
-
-        return {
-          ok: true,
-          intent,
-          confirmationUrl,
-        };
       } catch (error) {
         console.error("Billing request failed:", error);
         return {
@@ -1925,95 +1890,6 @@ function resolveEmbeddedHost(request, shopDomain) {
     return hostParam;
   }
   return buildEmbeddedHost(shopDomain);
-}
-
-function buildBillingStateCookie({ shop, host, requestUrl }) {
-  if (!shop) {
-    return "";
-  }
-
-  const payload = Buffer.from(
-    JSON.stringify({
-      shop,
-      host: host || "",
-    }),
-  ).toString("base64");
-
-  const isSecure = String(requestUrl || "").startsWith("https://");
-  const parts = [
-    `billing_state=${payload}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-  ];
-  if (isSecure) {
-    parts.push("Secure");
-  }
-
-  return parts.join("; ");
-}
-
-async function requestBillingViaGraphql(admin, { planKey, returnUrl, isTest }) {
-  const pricing = BILLING_LINE_ITEMS[planKey];
-
-  if (!pricing) {
-    throw new Error(`Unknown billing plan: ${planKey}`);
-  }
-
-  const mutation = `
-    mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean!, $lineItems: [AppSubscriptionLineItemInput!]!) {
-      appSubscriptionCreate(
-        name: $name
-        returnUrl: $returnUrl
-        test: $test
-        lineItems: $lineItems
-      ) {
-        confirmationUrl
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const variables = {
-    name: planKey,
-    returnUrl,
-    test: Boolean(isTest),
-    lineItems: [
-      {
-        plan: {
-          appRecurringPricingDetails: {
-            price: {
-              amount: pricing.amount,
-              currencyCode: "USD",
-            },
-            interval: pricing.interval,
-          },
-        },
-      },
-    ],
-  };
-
-  const response = await admin.graphql(mutation, { variables });
-  const payload = await response.json();
-  const errors = payload?.errors || [];
-  if (errors.length) {
-    throw new Error(errors[0]?.message || "Shopify billing request failed.");
-  }
-
-  const userErrors = payload?.data?.appSubscriptionCreate?.userErrors || [];
-  if (userErrors.length) {
-    throw new Error(userErrors[0]?.message || "Shopify billing request failed.");
-  }
-
-  const confirmationUrl = payload?.data?.appSubscriptionCreate?.confirmationUrl;
-  if (!confirmationUrl) {
-    throw new Error("Shopify did not return a confirmation URL.");
-  }
-
-  return confirmationUrl;
 }
 
 function getBillingPlanKey(planName, billingInterval) {

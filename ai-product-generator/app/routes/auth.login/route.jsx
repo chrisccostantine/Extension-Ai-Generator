@@ -1,3 +1,4 @@
+/* global Buffer */
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { useEffect, useState } from "react";
 import {
