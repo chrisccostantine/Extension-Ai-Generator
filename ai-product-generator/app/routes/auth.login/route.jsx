@@ -18,6 +18,16 @@ export const loader = async ({ request }) => {
   const shopParam = String(url.searchParams.get("shop") || cookieState?.shop || "").trim();
   const hostParam = String(url.searchParams.get("host") || cookieState?.host || "").trim();
 
+  console.info("[auth.login.loader]", {
+    pathname: url.pathname,
+    search: url.search,
+    shopParam,
+    hostParam,
+    hasBillingStateCookie: Boolean(cookieState),
+    userAgent: request.headers.get("user-agent") || "",
+    referer: request.headers.get("referer") || "",
+  });
+
   if (shopParam) {
     const redirectUrl = new URL("/auth", url.origin);
     redirectUrl.searchParams.set("shop", shopParam);
@@ -25,16 +35,37 @@ export const loader = async ({ request }) => {
       redirectUrl.searchParams.set("host", hostParam);
     }
     redirectUrl.searchParams.set("embedded", "1");
+    console.info("[auth.login.loader.redirect]", {
+      destination: redirectUrl.toString(),
+    });
     return redirect(redirectUrl.toString());
   }
 
   const errors = loginErrorMessage(await login(request));
 
+  console.info("[auth.login.loader.render]", {
+    errors,
+  });
+
   return { errors };
 };
 
 export const action = async ({ request }) => {
+  const url = new URL(request.url);
+  const formData = await request.formData();
+  const submittedShop = String(formData.get("shop") || "").trim();
+  console.info("[auth.login.action]", {
+    pathname: url.pathname,
+    search: url.search,
+    submittedShop,
+    referer: request.headers.get("referer") || "",
+  });
+
   const errors = loginErrorMessage(await login(request));
+
+  console.info("[auth.login.action.result]", {
+    errors,
+  });
 
   return {
     errors,
