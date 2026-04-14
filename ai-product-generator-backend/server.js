@@ -2499,7 +2499,7 @@ function getPlanFeatureList(planName) {
   if (normalized === "growth") {
     return [
       "300 generations per month",
-      "20 image generations per month",
+      "25 image generations per month",
       "Bulk generation and preview",
       "Saved presets",
       "Multilingual generation",
@@ -2511,7 +2511,7 @@ function getPlanFeatureList(planName) {
   if (normalized === "scale") {
     return [
       "800 generations per month",
-      "75 image generations per month",
+      "100 image generations per month",
       "Bulk generation and preview",
       "Saved presets",
       "Multilingual generation",
