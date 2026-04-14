@@ -924,14 +924,15 @@ export default function AppIndex() {
       }
 
       try {
-        if (window.top) {
-          window.top.location.assign(target);
-        } else {
-          window.location.assign(target);
+        const opened = window.open(target, "_top");
+        if (opened) {
+          return;
         }
       } catch (_error) {
-        window.location.assign(target);
+        // Fallback below.
       }
+
+      window.location.assign(target);
     }
   }, [actionData, appBridge]);
 
