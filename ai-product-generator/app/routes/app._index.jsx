@@ -1878,16 +1878,10 @@ function toClientId(shopDomain) {
 
 function buildBillingReturnUrl(request, shopDomain) {
   const currentUrl = new URL(request.url);
-  const embeddedAdminUrl = buildEmbeddedAdminReturnUrl(currentUrl);
-
-  if (embeddedAdminUrl) {
-    return embeddedAdminUrl;
-  }
-
   const appBase = String(process.env.SHOPIFY_APP_URL || "").trim();
   const fallbackBase = currentUrl.origin;
   const base = appBase || fallbackBase;
-  const url = new URL(currentUrl.pathname || "/app", base);
+  const url = new URL("/auth", base);
   const normalizedShop = String(shopDomain || "").trim();
   if (normalizedShop) {
     url.searchParams.set("shop", normalizedShop);
@@ -1898,30 +1892,6 @@ function buildBillingReturnUrl(request, shopDomain) {
   }
   url.searchParams.set("embedded", "1");
   return url;
-}
-
-function buildEmbeddedAdminReturnUrl(currentUrl) {
-  const encodedHost = String(currentUrl.searchParams.get("host") || "").trim();
-  const apiKey = String(process.env.SHOPIFY_API_KEY || "").trim();
-
-  if (!encodedHost || !apiKey) {
-    return null;
-  }
-
-  try {
-    const decodedHost = Buffer.from(encodedHost, "base64").toString("utf-8").trim();
-    if (!decodedHost.startsWith("https://admin.shopify.com/store/")) {
-      return null;
-    }
-
-    const adminBase = decodedHost.replace(/\/+$/, "");
-    const pathname = currentUrl.pathname.startsWith("/app")
-      ? currentUrl.pathname
-      : "/app";
-    return new URL(`${adminBase}/apps/${apiKey}${pathname}`);
-  } catch (_error) {
-    return null;
-  }
 }
 
 function buildEmbeddedHost(shopDomain) {
