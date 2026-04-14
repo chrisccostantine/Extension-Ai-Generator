@@ -28,7 +28,7 @@ const shopify = shopifyApp({
     [STARTER_MONTHLY_PLAN]: {
       lineItems: [
         {
-          amount: 9,
+          amount: 5,
           currencyCode: "USD",
           interval: BillingInterval.Every30Days,
         },
@@ -37,7 +37,7 @@ const shopify = shopifyApp({
     [STARTER_YEARLY_PLAN]: {
       lineItems: [
         {
-          amount: 90,
+          amount: 50,
           currencyCode: "USD",
           interval: BillingInterval.Annual,
         },
@@ -46,7 +46,7 @@ const shopify = shopifyApp({
     [GROWTH_MONTHLY_PLAN]: {
       lineItems: [
         {
-          amount: 30,
+          amount: 22,
           currencyCode: "USD",
           interval: BillingInterval.Every30Days,
         },
@@ -55,7 +55,7 @@ const shopify = shopifyApp({
     [GROWTH_YEARLY_PLAN]: {
       lineItems: [
         {
-          amount: 300,
+          amount: 220,
           currencyCode: "USD",
           interval: BillingInterval.Annual,
         },
@@ -64,7 +64,7 @@ const shopify = shopifyApp({
     [SCALE_MONTHLY_PLAN]: {
       lineItems: [
         {
-          amount: 79,
+          amount: 55,
           currencyCode: "USD",
           interval: BillingInterval.Every30Days,
         },
@@ -73,7 +73,7 @@ const shopify = shopifyApp({
     [SCALE_YEARLY_PLAN]: {
       lineItems: [
         {
-          amount: 790,
+          amount: 550,
           currencyCode: "USD",
           interval: BillingInterval.Annual,
         },

@@ -2084,24 +2084,24 @@ async function seedPlans() {
         '100 generations per month for steady single-product work. Best for small catalogs that do not need bulk generation or saved presets yet.',
         100,
         0,
-        900,
-        9000
+        500,
+        5000
       ),
       (
         'growth',
-        '300 generations per month, 20 image credits, bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
+        '300 generations per month, 25 image credits, bulk generation, saved presets, audit filters, previews, and multilingual workflows.',
         300,
-        20,
-        3000,
-        30000
+        25,
+        2200,
+        22000
       ),
       (
         'scale',
-        '800 generations per month, 75 image credits, and full access to bulk workflows, saved presets, multilingual generation, image generation, and advanced catalog optimization.',
+        '800 generations per month, 100 image credits, and full access to bulk workflows, saved presets, multilingual generation, image generation, and advanced catalog optimization.',
         800,
-        75,
-        7900,
-        79000
+        100,
+        5500,
+        55000
       )
     ON CONFLICT (name) DO UPDATE SET
       description = EXCLUDED.description,

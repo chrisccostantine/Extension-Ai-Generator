@@ -50,12 +50,12 @@ const ALL_BILLING_PLANS = Object.values(BILLING_PLAN_KEYS)
   .flatMap((entry) => Object.values(entry))
   .filter(Boolean);
 const BILLING_LINE_ITEMS = {
-  [STARTER_MONTHLY_PLAN]: { amount: 9, interval: "EVERY_30_DAYS" },
-  [STARTER_YEARLY_PLAN]: { amount: 90, interval: "ANNUAL" },
-  [GROWTH_MONTHLY_PLAN]: { amount: 30, interval: "EVERY_30_DAYS" },
-  [GROWTH_YEARLY_PLAN]: { amount: 300, interval: "ANNUAL" },
-  [SCALE_MONTHLY_PLAN]: { amount: 79, interval: "EVERY_30_DAYS" },
-  [SCALE_YEARLY_PLAN]: { amount: 790, interval: "ANNUAL" },
+  [STARTER_MONTHLY_PLAN]: { amount: 5, interval: "EVERY_30_DAYS" },
+  [STARTER_YEARLY_PLAN]: { amount: 50, interval: "ANNUAL" },
+  [GROWTH_MONTHLY_PLAN]: { amount: 22, interval: "EVERY_30_DAYS" },
+  [GROWTH_YEARLY_PLAN]: { amount: 220, interval: "ANNUAL" },
+  [SCALE_MONTHLY_PLAN]: { amount: 55, interval: "EVERY_30_DAYS" },
+  [SCALE_YEARLY_PLAN]: { amount: 550, interval: "ANNUAL" },
 };
 
 export const loader = async ({ request }) => {
