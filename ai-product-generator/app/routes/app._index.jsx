@@ -9,27 +9,47 @@ import {
   useRevalidator,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { authenticate } from "../shopify.server";
+import {
+  authenticate,
+  GROWTH_MONTHLY_PLAN,
+  GROWTH_YEARLY_PLAN,
+  SCALE_MONTHLY_PLAN,
+  SCALE_YEARLY_PLAN,
+  STARTER_MONTHLY_PLAN,
+  STARTER_YEARLY_PLAN,
+} from "../shopify.server";
 
-const PAYMENT_INSTRUCTIONS_TEXT =
-  "Transfers through Whish, BOB Finance, OMT, or Bank Audi Neo must be sent to +961 70 221 936. After payment, submit your transaction reference and proof screenshot in the app.";
 const SUPPORT_CONTACT_TEXT =
   "WhatsApp +961 81 106 116 or email: scalora.socialmedia.agency@gmail.com";
 const SUPPORT_EMAIL = "scalora.socialmedia.agency@gmail.com";
 const SUPPORT_PHONE = "+961 81 106 116";
-const PAYMENT_METHOD_OPTIONS = [
-  "Whish",
-  "OMT Wallet",
-  "BOB Finance",
-  "Bank Audi Neo",
-];
 const BACKEND_REQUEST_TIMEOUT_MS = 10000;
 const CONTENT_GENERATION_TIMEOUT_MS = 45000;
 const LOADER_AUDIT_TIMEOUT_MS = 1200;
 const BACKEND_RETRY_ATTEMPTS = 1;
+const BILLING_TEST_MODE = String(process.env.SHOPIFY_BILLING_TEST || "")
+  .trim()
+  .toLowerCase() === "true";
+const BILLING_PLAN_KEYS = {
+  starter: {
+    monthly: STARTER_MONTHLY_PLAN,
+    yearly: STARTER_YEARLY_PLAN,
+  },
+  growth: {
+    monthly: GROWTH_MONTHLY_PLAN,
+    yearly: GROWTH_YEARLY_PLAN,
+  },
+  scale: {
+    monthly: SCALE_MONTHLY_PLAN,
+    yearly: SCALE_YEARLY_PLAN,
+  },
+};
+const ALL_BILLING_PLANS = Object.values(BILLING_PLAN_KEYS)
+  .flatMap((entry) => Object.values(entry))
+  .filter(Boolean);
 
 export const loader = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, session, billing } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
   const auditFilters = getAuditFiltersFromRequest(request);
@@ -78,7 +98,7 @@ export const loader = async ({ request }) => {
         clientId,
       }),
     ]);
-    const shopStatus =
+    let shopStatus =
       shopStatusResult.status === "fulfilled" ? shopStatusResult.value : null;
     const plansPayload =
       plansResult.status === "fulfilled" ? plansResult.value : { plans: [] };
@@ -96,6 +116,51 @@ export const loader = async ({ request }) => {
           new Promise((resolve) => setTimeout(() => resolve({ status: "rejected" }), 1200)),
         ])
       : { status: "fulfilled", value: { presets: [] } };
+
+    if (billing && ALL_BILLING_PLANS.length && shopStatus) {
+      try {
+        const billingState = await billing.check({
+          plans: ALL_BILLING_PLANS,
+          isTest: BILLING_TEST_MODE,
+        });
+        const activeSubscription = billingState?.appSubscriptions?.[0];
+        const activePlanKey = activeSubscription?.name || "";
+        const mappedPlan = mapBillingPlanKey(activePlanKey);
+        const desiredPlanName = mappedPlan?.planName || "free";
+        const desiredInterval = mappedPlan?.billingInterval || "monthly";
+        const needsSync =
+          shopStatus.plan?.name !== desiredPlanName
+          || String(shopStatus.plan?.billing_interval || "monthly") !== desiredInterval;
+
+        if (needsSync) {
+          await backendRequest({
+            backend,
+            pathname: "/billing/sync",
+            method: "POST",
+            body: {
+              clientId,
+              planName: desiredPlanName,
+              billingInterval: desiredInterval,
+              currentPeriodStart: activeSubscription?.currentPeriodStart || "",
+              currentPeriodEnd: activeSubscription?.currentPeriodEnd || "",
+            },
+          }).catch(() => null);
+
+          const refreshed = await backendRequest({
+            backend,
+            pathname: "/shop-status",
+            method: "GET",
+            clientId,
+          }).catch(() => null);
+
+          if (refreshed) {
+            shopStatus = refreshed;
+          }
+        }
+      } catch (_error) {
+        // Billing check failures shouldn't block the app.
+      }
+    }
 
     return {
       backendConfigured:
@@ -138,7 +203,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, session, billing } = await authenticate.admin(request);
   const backend = getBackendConfig();
   const clientId = toClientId(session.shop);
   const formData = await request.formData();
@@ -563,73 +628,32 @@ export const action = async ({ request }) => {
         String(formData.get("billingInterval") || "").trim().toLowerCase() === "yearly"
           ? "yearly"
           : "monthly";
-      const contactName = String(formData.get("contactName") || "").trim();
-      const phoneNumber = String(formData.get("phoneNumber") || "").trim();
-      const email = String(formData.get("email") || "").trim();
-      const paymentMethod = String(formData.get("paymentMethod") || "").trim();
-      const paymentReference = String(
-        formData.get("paymentReference") || "",
-      ).trim();
-      const notes = String(formData.get("notes") || "").trim();
-      const proofFile = formData.get("proofFile");
+      const planKey = getBillingPlanKey(requestedPlanName, billingInterval);
 
-      if (!contactName) {
+      if (!planKey) {
         return {
           ok: false,
           intent,
-          message: "Your name is required.",
+          message: "Select a valid paid plan to continue.",
         };
       }
 
-      if (!phoneNumber) {
+      if (!billing) {
         return {
           ok: false,
           intent,
-          message: "Phone number is required.",
+          message: "Billing is not available for this request yet.",
         };
       }
 
-      if (!PAYMENT_METHOD_OPTIONS.includes(paymentMethod)) {
-        return {
-          ok: false,
-          intent,
-          message: "Please select a valid payment method.",
-        };
-      }
+      const returnUrl = new URL(request.url);
+      returnUrl.searchParams.set("billing", "confirmed");
 
-      const proofPayload = await serializeUploadedProof(proofFile);
-
-      if (!proofPayload.proofDataUrl) {
-        return {
-          ok: false,
-          intent,
-          message: "Transaction screenshot is required.",
-        };
-      }
-
-      const result = await backendRequest({
-        backend,
-        pathname: "/plan-requests",
-        method: "POST",
-        body: {
-          clientId,
-          requestedPlanName,
-          billingInterval,
-          contactName,
-          phoneNumber,
-          email,
-          paymentMethod,
-          paymentReference,
-          notes,
-          ...proofPayload,
-        },
+      await billing.request({
+        plan: planKey,
+        returnUrl: returnUrl.toString(),
+        isTest: BILLING_TEST_MODE,
       });
-
-      return {
-        ok: true,
-        intent,
-        message: result.message || "Upgrade request submitted successfully.",
-      };
     }
 
     if (intent === "generate-image-assets") {
@@ -1411,7 +1435,7 @@ export default function AppIndex() {
         heading={needsProfile ? "Business onboarding" : "Business profile"}
       >
         {isBusinessProfileExpanded ? (
-          <Form method="post" action="." encType="multipart/form-data">
+          <Form method="post" action=".">
             <input type="hidden" name="intent" value="save-profile" />
             <s-stack direction="block" gap="base">
               <label htmlFor="businessType">Business type</label>
@@ -1704,93 +1728,18 @@ export default function AppIndex() {
               )}
 
               <div style={paymentNoticeStyle}>
-                <strong>Payment destination</strong>
+                <strong>Billing handled by Shopify</strong>
                 <p style={paymentNoticeTextStyle}>
-                  {PAYMENT_INSTRUCTIONS_TEXT}
+                  You'll confirm the subscription inside Shopify and return here once it's approved.
                 </p>
                 <p style={paymentNoticeTextStyle}>
-                  <strong>Confirmation contact:</strong> {SUPPORT_CONTACT_TEXT}
+                  Need help? {SUPPORT_CONTACT_TEXT}
                 </p>
               </div>
 
-              <label htmlFor="contactName">Your name *</label>
-              <input
-                id="contactName"
-                name="contactName"
-                type="text"
-                placeholder="Required full name"
-                style={inputStyle}
-                required
-              />
-
-              <label htmlFor="phoneNumber">Phone number *</label>
-              <input
-                id="phoneNumber"
-                name="phoneNumber"
-                type="text"
-                placeholder="Required phone number"
-                style={inputStyle}
-                required
-              />
-
-              <label htmlFor="email">Email</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="Optional email address"
-                style={inputStyle}
-              />
-
-              <label htmlFor="paymentMethod">Payment method *</label>
-              <select
-                id="paymentMethod"
-                name="paymentMethod"
-                style={inputStyle}
-                defaultValue=""
-                required
-              >
-                <option value="" disabled>
-                  Select a payment method
-                </option>
-                {PAYMENT_METHOD_OPTIONS.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </select>
-
-              <label htmlFor="paymentReference">Payment reference</label>
-              <input
-                id="paymentReference"
-                name="paymentReference"
-                type="text"
-                placeholder="Transaction id or note"
-                style={inputStyle}
-              />
-
-              <label htmlFor="notes">Notes</label>
-              <textarea
-                id="notes"
-                name="notes"
-                rows="4"
-                placeholder="Any extra context for the request"
-                style={inputStyle}
-              />
-
-              <label htmlFor="proofFile">Transaction screenshot *</label>
-              <input
-                id="proofFile"
-                name="proofFile"
-                type="file"
-                accept="image/*"
-                style={inputStyle}
-                required
-              />
-
               <div style={bulkActionRowStyle}>
                 <s-button type="submit" variant="secondary">
-                  Submit upgrade request
+                  Continue to Shopify billing
                 </s-button>
                 <s-button
                   type="button"
@@ -1834,16 +1783,15 @@ export default function AppIndex() {
       )}
 
       {!isSupportPage && (
-      <s-section slot="aside" heading="Manual billing">
+      <s-section slot="aside" heading="Billing">
         <s-paragraph>
-          {PAYMENT_INSTRUCTIONS_TEXT}
+          Subscription charges are handled by Shopify billing.
         </s-paragraph>
         <s-paragraph>
-          <strong>Contact:</strong> {SUPPORT_CONTACT_TEXT}
+          You'll confirm any plan changes in Shopify, then return to the app.
         </s-paragraph>
         <s-paragraph>
-          Choose a plan, complete your payment, and send your transaction
-          reference so your upgrade can be reviewed and activated.
+          <strong>Support:</strong> {SUPPORT_CONTACT_TEXT}
         </s-paragraph>
       </s-section>
       )}
@@ -1865,6 +1813,27 @@ function toClientId(shopDomain) {
     .replace(/\.myshopify\.com$/, "");
 
   return `shopify-store:${handle}`;
+}
+
+function getBillingPlanKey(planName, billingInterval) {
+  const normalizedPlan = String(planName || "").trim().toLowerCase();
+  const interval = billingInterval === "yearly" ? "yearly" : "monthly";
+  return BILLING_PLAN_KEYS[normalizedPlan]?.[interval] || "";
+}
+
+function mapBillingPlanKey(planKey) {
+  const normalizedKey = String(planKey || "").trim();
+
+  for (const [planName, intervals] of Object.entries(BILLING_PLAN_KEYS)) {
+    if (intervals.monthly === normalizedKey) {
+      return { planName, billingInterval: "monthly" };
+    }
+    if (intervals.yearly === normalizedKey) {
+      return { planName, billingInterval: "yearly" };
+    }
+  }
+
+  return null;
 }
 
 async function backendRequest({
@@ -1947,27 +1916,6 @@ async function withTimeout(promise, timeoutMs, timeoutMessage) {
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-async function serializeUploadedProof(file) {
-  if (
-    !file ||
-    typeof file !== "object" ||
-    typeof file.arrayBuffer !== "function" ||
-    !("size" in file) ||
-    file.size === 0
-  ) {
-    return {};
-  }
-
-  const arrayBuffer = await file.arrayBuffer();
-  const base64 = bufferToBase64(arrayBuffer);
-
-  return {
-    proofFileName: file.name || "",
-    proofMimeType: file.type || "",
-    proofDataUrl: `data:${file.type || "application/octet-stream"};base64,${base64}`,
-  };
 }
 
 async function serializeUploadedImages(files) {

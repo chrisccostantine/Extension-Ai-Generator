@@ -226,6 +226,38 @@ app.get("/shop-status", async (req, res) => {
   }
 });
 
+app.post("/billing/sync", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const clientId = normalizeClientId(req.body?.clientId);
+    const planName = sanitizeText(req.body?.planName, 80)
+      .trim()
+      .toLowerCase() || freePlanName;
+    const billingInterval = normalizeBillingInterval(req.body?.billingInterval);
+    const currentPeriodStart = parseOptionalTimestamp(req.body?.currentPeriodStart);
+    const currentPeriodEnd = parseOptionalTimestamp(req.body?.currentPeriodEnd);
+
+    const shop = await ensureShop(clientId);
+    const subscription = await syncSubscriptionForShop({
+      shopId: shop.id,
+      planName,
+      billingInterval,
+      currentPeriodStart,
+      currentPeriodEnd,
+    });
+
+    return res.json({ subscription });
+  } catch (error) {
+    console.error("Failed to sync billing:", error);
+    return res.status(500).json({
+      error: error?.message || "Failed to sync billing.",
+    });
+  }
+});
+
 app.post("/shop-profile", async (req, res) => {
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -1291,6 +1323,19 @@ function sanitizeImageDataUrls(value) {
     })
     .filter(Boolean)
     .slice(0, 4);
+}
+
+function parseOptionalTimestamp(value) {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function sanitizeImageStylePreset(value) {
@@ -3391,6 +3436,82 @@ async function overrideSubscriptionForShop({ shopId, planName, billingInterval }
         updated_at = NOW()
     `,
     [shopId, plan.id, normalizedInterval, paidAmount],
+  );
+
+  const subscriptions = await listAdminSubscriptions();
+  return subscriptions.find((subscription) => subscription.shop_id === shopId) || null;
+}
+
+async function syncSubscriptionForShop({
+  shopId,
+  planName,
+  billingInterval,
+  currentPeriodStart,
+  currentPeriodEnd,
+}) {
+  if (!pool) {
+    throw new Error("Billing sync requires a database connection.");
+  }
+
+  const plan = await getPlanByName(planName);
+
+  if (!plan || !plan.is_active) {
+    throw new Error("Requested billing plan was not found.");
+  }
+
+  const normalizedInterval = normalizeBillingInterval(billingInterval);
+  const paidAmount =
+    normalizedInterval === "yearly"
+      ? Number(plan.yearly_price_cents || 0)
+      : Number(plan.price_cents || 0);
+
+  const periodStart = currentPeriodStart || new Date();
+  let periodEnd = currentPeriodEnd;
+
+  if (!periodEnd && paidAmount > 0) {
+    const fallbackEnd = new Date(periodStart);
+    if (normalizedInterval === "yearly") {
+      fallbackEnd.setFullYear(fallbackEnd.getFullYear() + 1);
+    } else {
+      fallbackEnd.setMonth(fallbackEnd.getMonth() + 1);
+    }
+    periodEnd = fallbackEnd;
+  }
+
+  if (paidAmount <= 0) {
+    periodEnd = null;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO subscriptions (
+        shop_id,
+        plan_id,
+        status,
+        billing_interval,
+        current_period_start,
+        current_period_end,
+        updated_at
+      )
+      VALUES (
+        $1,
+        $2,
+        'active',
+        $3,
+        $4,
+        $5,
+        NOW()
+      )
+      ON CONFLICT (shop_id)
+      DO UPDATE SET
+        plan_id = EXCLUDED.plan_id,
+        status = 'active',
+        billing_interval = EXCLUDED.billing_interval,
+        current_period_start = EXCLUDED.current_period_start,
+        current_period_end = EXCLUDED.current_period_end,
+        updated_at = NOW()
+    `,
+    [shopId, plan.id, normalizedInterval, periodStart, periodEnd],
   );
 
   const subscriptions = await listAdminSubscriptions();
