@@ -7,6 +7,7 @@ import {
   useLocation,
   useNavigation,
   useRevalidator,
+  redirect,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
@@ -47,6 +48,14 @@ const BILLING_PLAN_KEYS = {
 const ALL_BILLING_PLANS = Object.values(BILLING_PLAN_KEYS)
   .flatMap((entry) => Object.values(entry))
   .filter(Boolean);
+const BILLING_LINE_ITEMS = {
+  [STARTER_MONTHLY_PLAN]: { amount: 9, interval: "EVERY_30_DAYS" },
+  [STARTER_YEARLY_PLAN]: { amount: 90, interval: "ANNUAL" },
+  [GROWTH_MONTHLY_PLAN]: { amount: 30, interval: "EVERY_30_DAYS" },
+  [GROWTH_YEARLY_PLAN]: { amount: 300, interval: "ANNUAL" },
+  [SCALE_MONTHLY_PLAN]: { amount: 79, interval: "EVERY_30_DAYS" },
+  [SCALE_YEARLY_PLAN]: { amount: 790, interval: "ANNUAL" },
+};
 
 export const loader = async ({ request }) => {
   const { admin, session, billing } = await authenticate.admin(request);
@@ -649,15 +658,12 @@ export const action = async ({ request }) => {
       const returnUrl = buildBillingReturnUrl(request, session.shop);
 
       try {
-        return await billing.request({
-          plan: planKey,
+        return await requestBillingViaGraphql(admin, {
+          planKey,
           returnUrl: returnUrl.toString(),
           isTest: BILLING_TEST_MODE,
         });
       } catch (error) {
-        if (error && typeof error === "object" && "status" in error && "headers" in error) {
-          return error;
-        }
         console.error("Billing request failed:", error);
         return {
           ok: false,
@@ -1856,6 +1862,69 @@ function buildBillingReturnUrl(request, shopDomain) {
   }
   url.searchParams.set("billing", "confirmed");
   return url;
+}
+
+async function requestBillingViaGraphql(admin, { planKey, returnUrl, isTest }) {
+  const pricing = BILLING_LINE_ITEMS[planKey];
+
+  if (!pricing) {
+    throw new Error(`Unknown billing plan: ${planKey}`);
+  }
+
+  const mutation = `
+    mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean!, $lineItems: [AppSubscriptionLineItemInput!]!) {
+      appSubscriptionCreate(
+        name: $name
+        returnUrl: $returnUrl
+        test: $test
+        lineItems: $lineItems
+      ) {
+        confirmationUrl
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const variables = {
+    name: planKey,
+    returnUrl,
+    test: Boolean(isTest),
+    lineItems: [
+      {
+        plan: {
+          appRecurringPricingDetails: {
+            price: {
+              amount: pricing.amount,
+              currencyCode: "USD",
+            },
+            interval: pricing.interval,
+          },
+        },
+      },
+    ],
+  };
+
+  const response = await admin.graphql(mutation, { variables });
+  const payload = await response.json();
+  const errors = payload?.errors || [];
+  if (errors.length) {
+    throw new Error(errors[0]?.message || "Shopify billing request failed.");
+  }
+
+  const userErrors = payload?.data?.appSubscriptionCreate?.userErrors || [];
+  if (userErrors.length) {
+    throw new Error(userErrors[0]?.message || "Shopify billing request failed.");
+  }
+
+  const confirmationUrl = payload?.data?.appSubscriptionCreate?.confirmationUrl;
+  if (!confirmationUrl) {
+    throw new Error("Shopify did not return a confirmation URL.");
+  }
+
+  return redirect(confirmationUrl);
 }
 
 function getBillingPlanKey(planName, billingInterval) {
