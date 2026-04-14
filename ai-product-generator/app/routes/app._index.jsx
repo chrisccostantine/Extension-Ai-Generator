@@ -1,5 +1,7 @@
 /* global Buffer, process */
 import { useEffect, useMemo, useState } from "react";
+import { useAppBridge } from "@shopify/app-bridge-react";
+import { Redirect } from "@shopify/app-bridge/actions";
 import {
   Form,
   useActionData,
@@ -875,6 +877,7 @@ export default function AppIndex() {
   const navigation = useNavigation();
   const location = useLocation();
   const revalidator = useRevalidator();
+  const appBridge = useAppBridge();
   const profile = data.shopStatus?.profile || emptyProfile;
   const needsProfile =
     !profile.business_type ||
@@ -909,6 +912,17 @@ export default function AppIndex() {
   useEffect(() => {
     if (actionData?.intent === "request-plan" && actionData?.confirmationUrl) {
       const target = actionData.confirmationUrl;
+
+      try {
+        if (appBridge) {
+          const redirect = Redirect.create(appBridge);
+          redirect.dispatch(Redirect.Action.REMOTE, target);
+          return;
+        }
+      } catch (_error) {
+        // Fallback to window navigation below.
+      }
+
       try {
         if (window.top) {
           window.top.location.assign(target);
@@ -919,7 +933,7 @@ export default function AppIndex() {
         window.location.assign(target);
       }
     }
-  }, [actionData]);
+  }, [actionData, appBridge]);
 
   useEffect(() => {
     if (actionData?.intent === "save-preset") {
