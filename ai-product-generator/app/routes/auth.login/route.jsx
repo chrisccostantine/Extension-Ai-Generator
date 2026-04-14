@@ -15,13 +15,14 @@ import { loginErrorMessage } from "./error.server";
 export const loader = async ({ request }) => {
   const cookieState = readBillingStateCookie(request);
   const url = new URL(request.url);
-  const hasShopParam = url.searchParams.get("shop");
+  const shopParam = String(url.searchParams.get("shop") || cookieState?.shop || "").trim();
+  const hostParam = String(url.searchParams.get("host") || cookieState?.host || "").trim();
 
-  if (!hasShopParam && cookieState?.shop) {
-    const redirectUrl = new URL("/app", url.origin);
-    redirectUrl.searchParams.set("shop", cookieState.shop);
-    if (cookieState.host) {
-      redirectUrl.searchParams.set("host", cookieState.host);
+  if (shopParam) {
+    const redirectUrl = new URL("/auth", url.origin);
+    redirectUrl.searchParams.set("shop", shopParam);
+    if (hostParam) {
+      redirectUrl.searchParams.set("host", hostParam);
     }
     redirectUrl.searchParams.set("embedded", "1");
     return redirect(redirectUrl.toString());
