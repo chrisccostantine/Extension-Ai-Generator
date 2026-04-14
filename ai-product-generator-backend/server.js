@@ -1089,6 +1089,13 @@ app.post("/admin/api/subscriptions/:shopId/override", async (req, res) => {
       return res.status(400).json({ error: "Invalid shop id." });
     }
 
+    const hasActivePaidSubscription = await isPaidSubscriptionActive(shopId);
+    if (hasActivePaidSubscription) {
+      return res.status(409).json({
+        error: "Overrides are disabled while an active Shopify subscription is in place.",
+      });
+    }
+
     if (!planName) {
       return res.status(400).json({ error: "Plan name is required." });
     }
@@ -1374,6 +1381,45 @@ function sanitizeImageCount(value) {
 function normalizeBillingInterval(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return normalized === "yearly" ? "yearly" : "monthly";
+}
+
+async function isPaidSubscriptionActive(shopId) {
+  if (!pool) {
+    return false;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        subscriptions.status,
+        subscriptions.current_period_end,
+        plans.price_cents
+      FROM subscriptions
+      JOIN plans ON plans.id = subscriptions.plan_id
+      WHERE subscriptions.shop_id = $1
+      LIMIT 1
+    `,
+    [shopId],
+  );
+
+  const subscription = result.rows[0];
+  if (!subscription) {
+    return false;
+  }
+
+  if (subscription.status !== "active") {
+    return false;
+  }
+
+  if (Number(subscription.price_cents || 0) <= 0) {
+    return false;
+  }
+
+  if (!subscription.current_period_end) {
+    return true;
+  }
+
+  return new Date(subscription.current_period_end).getTime() > Date.now();
 }
 
 function normalizeOrigin(value) {
