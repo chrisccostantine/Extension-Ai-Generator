@@ -1876,6 +1876,11 @@ function buildBillingReturnUrl(request, shopDomain) {
   if (normalizedShop) {
     url.searchParams.set("shop", normalizedShop);
   }
+  const currentUrl = new URL(request.url);
+  const hostParam = currentUrl.searchParams.get("host");
+  if (hostParam) {
+    url.searchParams.set("host", hostParam);
+  }
   return url;
 }
 
