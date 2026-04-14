@@ -663,6 +663,13 @@ export const action = async ({ request }) => {
           ok: false,
           intent,
           message: error?.message || "Error while billing the store.",
+          debug: buildBillingDebug({
+            error,
+            planKey,
+            returnUrl: returnUrl.toString(),
+            isTest: BILLING_TEST_MODE,
+            shop: session.shop,
+          }),
         };
       }
     }
@@ -1765,7 +1772,17 @@ export default function AppIndex() {
         )}
 
         {actionData?.message && actionData.intent === "request-plan" && (
-          <div style={getNoticeStyle(actionData.ok)}>{actionData.message}</div>
+          <div style={getNoticeStyle(actionData.ok)}>
+            <p>{actionData.message}</p>
+            {actionData.debug ? (
+              <details style={{ marginTop: "8px" }}>
+                <summary>Billing debug details</summary>
+                <pre style={{ whiteSpace: "pre-wrap", marginTop: "8px" }}>
+                  {actionData.debug}
+                </pre>
+              </details>
+            ) : null}
+          </div>
         )}
       </s-section>
       )}
@@ -1860,6 +1877,26 @@ function mapBillingPlanKey(planKey) {
   }
 
   return null;
+}
+
+function buildBillingDebug({ error, planKey, returnUrl, isTest, shop }) {
+  const details = {
+    planKey,
+    returnUrl,
+    isTest,
+    shop,
+  };
+
+  if (error && typeof error === "object") {
+    details.errorName = error.name || "";
+    details.errorMessage = error.message || "";
+    details.errorStack = error.stack || "";
+    details.errorCause = error.cause || "";
+  } else {
+    details.errorMessage = String(error || "");
+  }
+
+  return JSON.stringify(details, null, 2);
 }
 
 async function backendRequest({
