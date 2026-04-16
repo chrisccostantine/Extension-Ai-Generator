@@ -649,21 +649,34 @@ export const action = async ({ request }) => {
       }
 
       const returnUrl = buildBillingReturnUrl(request, session.shop);
+      const billingStateCookie = buildBillingStateCookie({
+        shop: session.shop,
+        host: resolveEmbeddedHost(request, session.shop),
+        requestUrl: request.url,
+      });
 
       try {
-        return await billing.request({
+        const billingResponse = await billing.request({
           plan: planKey,
           isTest: BILLING_TEST_MODE,
           returnUrl: returnUrl.toString(),
         });
+
+        if (billingResponse instanceof Response && billingStateCookie) {
+          const responseHeaders = new Headers(billingResponse.headers);
+          responseHeaders.append("Set-Cookie", billingStateCookie);
+
+          return new Response(billingResponse.body, {
+            status: billingResponse.status,
+            statusText: billingResponse.statusText,
+            headers: responseHeaders,
+          });
+        }
+
+        return billingResponse;
       } catch (error) {
         if (error instanceof Response) {
           const responseHeaders = new Headers(error.headers);
-          const billingStateCookie = buildBillingStateCookie({
-            shop: session.shop,
-            host: resolveEmbeddedHost(request, session.shop),
-            requestUrl: request.url,
-          });
 
           if (billingStateCookie) {
             responseHeaders.append("Set-Cookie", billingStateCookie);
