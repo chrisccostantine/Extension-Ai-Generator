@@ -1924,7 +1924,7 @@ function buildBillingStateCookie({ shop, host, requestUrl }) {
     `billing_state=${payload}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    "SameSite=None",
     "Max-Age=900",
   ];
 
