@@ -104,6 +104,18 @@ export default function Auth() {
     }
   }, [shop, shopParam, submit, location.pathname, location.search]);
 
+  if (shopParam) {
+    return (
+      <AppProvider embedded={false}>
+        <s-page>
+          <s-section heading="Connecting store">
+            <s-text>Finishing secure sign-in...</s-text>
+          </s-section>
+        </s-page>
+      </AppProvider>
+    );
+  }
+
   return (
     <AppProvider embedded={false}>
       <s-page>
