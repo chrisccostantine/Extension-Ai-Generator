@@ -15,4 +15,6 @@ COPY . .
 
 RUN npm run build
 
-CMD ["sh", "-c", "HOST=0.0.0.0 npm run docker-start"]
+ENV HOST=0.0.0.0
+
+CMD ["node", "./server.mjs"]
