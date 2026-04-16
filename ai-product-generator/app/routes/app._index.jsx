@@ -1881,7 +1881,7 @@ function buildBillingReturnUrl(request, shopDomain) {
   const appBase = String(process.env.SHOPIFY_APP_URL || "").trim();
   const fallbackBase = currentUrl.origin;
   const base = appBase || fallbackBase;
-  const url = new URL("/auth", base);
+  const url = new URL("/app/pricing", base);
   const normalizedShop = String(shopDomain || "").trim();
   if (normalizedShop) {
     url.searchParams.set("shop", normalizedShop);
