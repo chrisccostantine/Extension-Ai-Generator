@@ -2006,6 +2006,8 @@ function getBillingConfirmationUrl(value) {
   return String(
     value.headers.get("Location")
       || value.headers.get("location")
+      || value.headers.get("X-Shopify-API-Request-Failure-Reauthorize-Url")
+      || value.headers.get("x-shopify-api-request-failure-reauthorize-url")
       || "",
   ).trim();
 }
