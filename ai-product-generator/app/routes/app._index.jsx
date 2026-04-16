@@ -1952,7 +1952,7 @@ function buildBillingStateCookie({ shop, host, requestUrl }) {
     }),
   ).toString("base64");
 
-  const isSecure = String(requestUrl || "").startsWith("https://");
+  const isSecure = shouldUseSecureCookie(requestUrl);
   const parts = [
     `billing_state=${payload}`,
     "Path=/",
@@ -1966,6 +1966,13 @@ function buildBillingStateCookie({ shop, host, requestUrl }) {
   }
 
   return parts.join("; ");
+}
+
+function shouldUseSecureCookie(requestUrl) {
+  const rawUrl = String(requestUrl || "").trim();
+  const appUrl = String(process.env.SHOPIFY_APP_URL || "").trim();
+
+  return rawUrl.startsWith("https://") || appUrl.startsWith("https://");
 }
 
 function resolveEmbeddedHost(request, shopDomain) {
