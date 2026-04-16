@@ -14,6 +14,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY . .
 
 RUN npx prisma generate
+RUN npx prisma migrate deploy
 RUN npm run build
 
 ENV HOST=0.0.0.0
