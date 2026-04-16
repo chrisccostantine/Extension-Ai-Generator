@@ -662,6 +662,16 @@ export const action = async ({ request }) => {
           returnUrl: returnUrl.toString(),
         });
 
+        const confirmationUrl = getBillingConfirmationUrl(billingResponse);
+
+        if (confirmationUrl) {
+          return {
+            ok: true,
+            intent,
+            confirmationUrl,
+          };
+        }
+
         if (billingResponse instanceof Response && billingStateCookie) {
           const responseHeaders = new Headers(billingResponse.headers);
           responseHeaders.append("Set-Cookie", billingStateCookie);
@@ -676,6 +686,16 @@ export const action = async ({ request }) => {
         return billingResponse;
       } catch (error) {
         if (error instanceof Response) {
+          const confirmationUrl = getBillingConfirmationUrl(error);
+
+          if (confirmationUrl) {
+            return {
+              ok: true,
+              intent,
+              confirmationUrl,
+            };
+          }
+
           const responseHeaders = new Headers(error.headers);
 
           if (billingStateCookie) {
@@ -1976,6 +1996,18 @@ function mapBillingPlanKey(planKey) {
   }
 
   return null;
+}
+
+function getBillingConfirmationUrl(value) {
+  if (!(value instanceof Response)) {
+    return "";
+  }
+
+  return String(
+    value.headers.get("Location")
+      || value.headers.get("location")
+      || "",
+  ).trim();
 }
 
 
