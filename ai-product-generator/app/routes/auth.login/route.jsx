@@ -15,8 +15,10 @@ import { loginErrorMessage } from "./error.server";
 export const loader = async ({ request }) => {
   const cookieState = readBillingStateCookie(request);
   const url = new URL(request.url);
-  const shopParam = String(url.searchParams.get("shop") || cookieState?.shop || "").trim();
-  const hostParam = String(url.searchParams.get("host") || cookieState?.host || "").trim();
+  const queryShopParam = String(url.searchParams.get("shop") || "").trim();
+  const queryHostParam = String(url.searchParams.get("host") || "").trim();
+  const shopParam = String(queryShopParam || cookieState?.shop || "").trim();
+  const hostParam = String(queryHostParam || cookieState?.host || "").trim();
 
   console.info("[auth.login.loader]", {
     pathname: url.pathname,
@@ -28,8 +30,8 @@ export const loader = async ({ request }) => {
     referer: request.headers.get("referer") || "",
   });
 
-  if (shopParam) {
-    const redirectUrl = new URL("/auth", url.origin);
+  if (!queryShopParam && cookieState?.shop) {
+    const redirectUrl = new URL("/auth/login", url.origin);
     redirectUrl.searchParams.set("shop", shopParam);
     if (hostParam) {
       redirectUrl.searchParams.set("host", hostParam);
@@ -38,7 +40,17 @@ export const loader = async ({ request }) => {
     console.info("[auth.login.loader.redirect]", {
       destination: redirectUrl.toString(),
     });
-    return redirect(redirectUrl.toString());
+    return redirect(redirectUrl.toString(), {
+      headers: {
+        "Set-Cookie": clearBillingStateCookie(request),
+      },
+    });
+  }
+
+  if (queryShopParam) {
+    return {
+      errors: {},
+    };
   }
 
   const errors = loginErrorMessage(await login(request));
@@ -135,4 +147,27 @@ function readBillingStateCookie(request) {
   } catch (_error) {
     return null;
   }
+}
+
+function clearBillingStateCookie(request) {
+  const parts = [
+    "billing_state=",
+    "Path=/",
+    "HttpOnly",
+    "SameSite=None",
+    "Max-Age=0",
+  ];
+
+  if (shouldUseSecureCookie(request.url)) {
+    parts.push("Secure");
+  }
+
+  return parts.join("; ");
+}
+
+function shouldUseSecureCookie(requestUrl) {
+  const rawUrl = String(requestUrl || "").trim();
+  const appUrl = String(process.env.SHOPIFY_APP_URL || "").trim();
+
+  return rawUrl.startsWith("https://") || appUrl.startsWith("https://");
 }
